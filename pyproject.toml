@@ -42,8 +42,7 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 
 [tool.flake8]
-max-line-length = 100
-extend-ignore = ["W503"]
+max-line-length = 79
 
 [tool.bandit]
 exclude_dirs = ["tests"]

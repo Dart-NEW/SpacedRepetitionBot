@@ -24,7 +24,9 @@ from spaced_repetition_bot.infrastructure.repositories import (
     InMemoryPhraseRepository,
     InMemorySettingsRepository,
 )
-from spaced_repetition_bot.infrastructure.translators import MockTranslationProvider
+from spaced_repetition_bot.infrastructure.translators import (
+    MockTranslationProvider,
+)
 
 
 @dataclass(slots=True)
@@ -63,7 +65,9 @@ def build_container(config: AppConfig | None = None) -> ApplicationContainer:
             clock=clock,
         ),
         get_history=GetHistoryUseCase(phrase_repository=phrase_repository),
-        toggle_learning=ToggleLearningUseCase(phrase_repository=phrase_repository),
+        toggle_learning=ToggleLearningUseCase(
+            phrase_repository=phrase_repository
+        ),
         get_due_reviews=GetDueReviewsUseCase(
             phrase_repository=phrase_repository,
             clock=clock,
@@ -78,6 +82,10 @@ def build_container(config: AppConfig | None = None) -> ApplicationContainer:
             phrase_repository=phrase_repository,
             clock=clock,
         ),
-        get_settings=GetSettingsUseCase(settings_repository=settings_repository),
-        update_settings=UpdateSettingsUseCase(settings_repository=settings_repository),
+        get_settings=GetSettingsUseCase(
+            settings_repository=settings_repository
+        ),
+        update_settings=UpdateSettingsUseCase(
+            settings_repository=settings_repository
+        ),
     )
