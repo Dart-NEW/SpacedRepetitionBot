@@ -5,7 +5,11 @@ from spaced_repetition_bot.domain.enums import (
     ReviewDirection,
     ReviewOutcome,
 )
-from spaced_repetition_bot.domain.models import PhraseCard, ReviewTrack, UserSettings
+from spaced_repetition_bot.domain.models import (
+    PhraseCard,
+    ReviewTrack,
+    UserSettings,
+)
 from spaced_repetition_bot.domain.policies import (
     FixedIntervalSpacedRepetitionPolicy,
     NormalizedTextAnswerPolicy,

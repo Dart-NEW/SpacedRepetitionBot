@@ -14,10 +14,13 @@ def create_app() -> FastAPI:
         title=container.config.app_name,
         version=container.config.app_version,
         description=(
-            "MVP service for a Telegram-based translator with spaced repetition scheduling."
+            "MVP service for a Telegram-based translator "
+            "with spaced repetition scheduling."
         ),
     )
-    app.include_router(build_api_router(container), prefix=container.config.api_prefix)
+    app.include_router(
+        build_api_router(container), prefix=container.config.api_prefix
+    )
     return app
 
 

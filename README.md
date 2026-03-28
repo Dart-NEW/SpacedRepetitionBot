@@ -69,6 +69,13 @@ Install the full development toolchain:
 python3 -m pip install -e ".[db,quality]"
 ```
 
+Install local Git hooks:
+
+```bash
+python3 -m pip install pre-commit
+pre-commit install --hook-type pre-push
+```
+
 ### 5. Configure the Environment
 
 Create a local `.env` file from the template:
@@ -172,10 +179,29 @@ python3 -m compileall src tests
 ```bash
 flake8 src tests
 radon cc -a -s src
+python3 scripts/check_complexity.py src/ --max 9
 radon mi -s src
-bandit -r src
-pytest --cov=src --cov-report=term-missing --cov-fail-under=80
+bandit -r src -lll
+pytest --maxfail=0 --cov=src --cov-report=term-missing --cov-fail-under=80
+HOME=$PWD/.safety-home safety check
+locust --headless --host=http://localhost:8000 --users=100 --spawn-rate=10 --run-time=5m --csv=results --html report.html
 ```
+
+OpenAPI quality is enforced by the API test suite. The schema must keep
+non-empty operation and parameter descriptions, plus at least one documented
+response example for every request.
+
+## Quality Gates
+
+- `Pre-push`: `pre-commit` blocks pushes on any `flake8` error and on any
+  high-severity `bandit` finding in staged source files.
+- `Pre-merge`: GitHub Actions blocks PRs on failed tests, coverage below `80%`,
+  failed quality/security gates, or missing OpenAPI contract checks.
+- `Release`: run the full CI pipeline and a local demo smoke test before
+  presenting the project.
+
+Repository settings still need one external GitHub branch-protection rule:
+require at least one approval from someone other than the PR author.
 
 ## Troubleshooting
 
@@ -216,6 +242,8 @@ python3 -m pip install -e .
 
 - `docs/technical_specification.md` - full specification
 - `.env.example` - environment template
+- `locustfile.py` - performance test scenarios
+- `scripts/check_complexity.py` - cyclomatic complexity gate
 - `src/spaced_repetition_bot/main.py` - FastAPI entrypoint
 - `src/spaced_repetition_bot/run_telegram_bot.py` - Telegram polling entrypoint
 
