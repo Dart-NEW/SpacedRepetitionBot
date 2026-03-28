@@ -2,184 +2,197 @@
 
 ## 1. Overview
 
-The service combines translation and spaced repetition in a single Telegram bot.
-Users translate phrases directly in chat, keep a searchable history, review due
-cards on schedule, and track progress without switching between multiple tools.
+SpacedRepetitionBot is a Telegram-first service for saving translated phrases
+and reviewing them through a fixed spaced repetition schedule.
 
 Specification review date: `2026-03-28`.
+
+The current delivery stage covers the main product functionality. Dedicated
+testing expansion, migration tooling, and extended quality automation are
+deferred to a later stage.
 
 ## 2. Product Goals
 
 ### 2.1 Primary Goal
 
-Reduce the path from "I found an unfamiliar phrase" to "I added it to my study
-flow and reviewed it on time" to a single Telegram conversation.
+Reduce the path from "I found an unfamiliar phrase" to "I translated it, saved
+it, and reviewed it on time" to a single Telegram workflow.
 
 ### 2.2 Product Outcomes
 
-The product should:
+The product must:
 
-- translate phrases in chat
-- turn translations into review cards
-- schedule reviews automatically
-- support both translation directions
-- keep reminders useful and non-intrusive
+- translate phrases inside Telegram
+- persist saved phrases and settings across restarts
+- schedule phrase reviews automatically
+- support both directions within one active language pair
+- remind users when reviews are due
+- let users pause and restore cards without deleting history
 
-## 3. Competitive and Technical Benchmarks
+## 3. Key Product Decisions from the Q&A
 
-### 3.1 Current Best-in-Class References
+- Only one active language pair is supported per user.
+- The spaced repetition schedule is fixed at `2 / 3 / 5 / 7`.
+- A phrase is fully learned only after both review directions are completed.
+- The quiz format is manual text input only.
+- Answer validation is tolerant to case, repeated spaces, and common hyphen
+  differences.
+- An incorrect answer fully resets the current review track.
+- Skipping a quiz leaves the card due for later review.
+- Notification scheduling is time-based, not frequency-based, in this phase.
+- Phrase edit and delete flows are out of scope for the current MVP.
+- History storage has no hard cap in this phase, while API responses return
+  bounded slices.
+- Persistent state is keyed by Telegram user id and shared across user devices
+  and sessions.
+- SQLite is sufficient for the current implementation stage.
+
+## 4. Competitive and Technical Benchmarks
+
+### 4.1 Current Best-in-Class References
 
 1. `Anki + FSRS`
-   The strongest reference point for modern spaced repetition systems. FSRS is
-   widely used as a practical adaptive review scheduler.
+   Strong reference point for review quality and long-term retention.
 
 2. `Quizlet / Duolingo`
-   Strong in usability and packaged learning content, but weaker for the
-   user-owned phrase capture workflow this product targets.
+   Strong examples of accessible learning UX, but weaker for user-owned phrase
+   capture.
 
 3. `Telegram-first learning bots`
-   Strongest fit for low-friction capture and review because the interaction
-   happens in a tool users already open multiple times per day.
+   The closest product pattern for low-friction daily usage.
 
-### 3.2 Product Decision
+### 4.2 Product Positioning
 
-- The MVP must follow the fixed assignment schedule `2 / 3 / 5 / 7`.
-- The architecture must allow a later switch to `FSRS` without rewriting core
-  use cases.
-- Translation must be hidden behind a `TranslationProvider` port so providers
-  can be swapped cleanly.
+This service prioritizes phrase capture and review inside an existing messaging
+interface rather than a content-heavy course platform.
 
-### 3.3 Recommended Stack
+### 4.3 Recommended Stack
 
 - `Python 3.12+`
 - `aiogram 3.x`
 - `FastAPI`
 - `Pydantic v2`
 - `SQLAlchemy 2.x`
-- `Alembic`
-- `httpx`
-- `SQLite` for MVP, `PostgreSQL` for production
-- `pytest`, `pytest-cov`, `flake8`, `radon`, `bandit`, `locust`, `safety`
+- `SQLite` for the current MVP
 
-### 3.4 Rationale
-
-- `aiogram 3.x` provides an async-first, router-based Telegram integration.
-- `FastAPI` produces OpenAPI documentation automatically and works well with a
-  typed application layer.
-- `Pydantic v2` is a strong fit for DTO validation and JSON schema generation.
-- `SQLAlchemy 2.x` fits clean architecture and supports both MVP and production
-  persistence strategies.
-- `SQLite` keeps the MVP simple while preserving a clean path to
-  `PostgreSQL`.
-
-### 3.5 Research Sources
+### 4.4 Research Sources
 
 - aiogram docs: https://docs.aiogram.dev/en/latest/
 - FastAPI OpenAPI reference: https://fastapi.tiangolo.com/reference/openapi/
 - Pydantic models: https://docs.pydantic.dev/latest/concepts/models/
 - SQLAlchemy declarative mapping: https://docs.sqlalchemy.org/20/orm/declarative_mapping.html
-- Google Cloud Translation docs: https://docs.cloud.google.com/translate/docs/samples/translate-translate-text
 - FSRS algorithm reference: https://github.com/open-spaced-repetition/fsrs4anki/wiki/The-Algorithm
 
-## 4. MVP Scope
+## 5. Implemented Scope
 
-### 4.1 Included
+### 5.1 Included
 
 - phrase translation between languages `A` and `B`
+- one active language pair per user
+- one default translation direction per user
 - translation history
-- card creation during translation
+- persistent phrase cards
 - opt-out from learning while keeping history
+- restore from `not_learning`
 - bidirectional quizzes
-- manual text answers
-- progress reset on incorrect answers
-- progress summary
-- language and notification settings
-- HTTP API with OpenAPI
-- Telegram integration as a separate adapter
+- manual answer checking
+- reminder delivery inside the Telegram bot process
+- user settings for pair, direction, timezone, notification time, and
+  notification enable state
+- HTTP API with OpenAPI documentation
+- Telegram command flow for translation, settings, and reviews
 
-### 4.2 Excluded
+### 5.2 Deferred
 
-- production-grade FSRS scheduling
-- voice messages
-- OCR
-- multimedia cards
-- shared dictionaries
+- notification frequency as a separate setting
+- multiple quiz formats
 - semantic answer matching
-- retention analytics
+- phrase editing and deletion
+- multiple active language pairs per user
+- analytics beyond current learning state
+- migration tooling
+- expanded testing and quality automation phase
 
-## 5. Functional Requirements
+## 6. Functional Requirements
 
-### 5.1 Translation
+### 6.1 Translation
 
 1. The user sends a phrase as text.
-2. The service determines the direction:
-   - default `A -> B`
-   - optional override `B -> A`
-3. The bot returns the translation.
-4. If learning is enabled, the service creates a card and schedules reviews.
+2. The system uses the stored active language pair.
+3. The system applies the current translation direction:
+   - `forward` means `A -> B`
+   - `reverse` means `B -> A`
+4. The translation result is returned to the user.
+5. If learning is enabled, a card is persisted with review tracks for both
+   directions.
 
-### 5.2 History
+### 6.2 History
 
-1. The service stores every translation for a user.
-2. The user can request recent translations.
+1. Every translation is stored per user.
+2. The user can request recent translation history.
 3. History must show:
+   - card id
    - source phrase
    - translated phrase
    - language pair
    - creation date
    - learning status
+4. The API returns bounded history slices per request.
 
-### 5.3 Excluding a Card from Learning
+### 6.3 Learning Control
 
 1. The user can mark a card as `not_learning`.
 2. The card is removed from the review queue.
-3. The card remains in translation history.
+3. The card remains in history.
+4. The user can restore the card later.
 
-### 5.4 Review Scheduling
+### 6.4 Review Scheduling
 
-1. The MVP uses the fixed schedule `2 / 3 / 5 / 7`.
-2. Each card creates two independent review tracks:
-   - `forward`: `A -> B`
-   - `reverse`: `B -> A`
+1. The review schedule is fixed at `2 / 3 / 5 / 7`.
+2. Each card creates two review tracks:
+   - `forward`
+   - `reverse`
 3. A correct answer advances the track.
 4. An incorrect answer resets the track to the first interval.
-5. A track is marked complete after all steps are passed.
-6. A card is fully learned only when both tracks are complete.
+5. A track is completed after the final successful step.
+6. A card is learned only when both tracks are completed.
 
-### 5.5 Quiz Flow
+### 6.5 Quiz Flow
 
-1. The service fetches all due reviews.
-2. The user sees the phrase in one language.
-3. The user answers manually with text.
-4. The answer checker normalizes:
-   - leading and trailing whitespace
-   - case
+1. The service fetches the due reviews for a user.
+2. The bot starts or resumes one active quiz session per user.
+3. The prompt shows the phrase in the language required by the selected review
+   direction.
+4. The user answers manually with text.
+5. The answer checker normalizes:
+   - surrounding whitespace
+   - letter case
    - repeated spaces
-5. The result updates review progress.
+   - common hyphen and dash variants
+6. The result updates review progress.
+7. The next due prompt is offered automatically when available.
+8. Skipping a quiz clears the active session but keeps the card due.
 
-### 5.6 Settings
+### 6.6 Notifications
+
+1. Notification delivery runs inside the Telegram bot process.
+2. Reminder scheduling respects:
+   - stored timezone
+   - stored local notification time
+   - notification enabled state
+3. A user receives a reminder only when due reviews exist.
+4. A user receives at most one reminder per local day.
+
+### 6.7 Settings
 
 Users can change:
 
 - default source language
 - default target language
-- time zone
+- default translation direction
+- timezone
 - preferred notification time
 - notification enabled state
-
-## 6. Non-Functional Requirements
-
-The project targets the following quality thresholds:
-
-- cyclomatic complexity `< 10` per function
-- maintainability index `> 70%`
-- `flake8` with zero style errors
-- OpenAPI coverage for all public API routes
-- line coverage `>= 80%`
-- passing `pytest`
-- no high-severity `bandit` findings
-- acceptable `safety` results
-- `P95 < 300ms` for local MVP API requests, excluding external translation time
 
 ## 7. Architecture
 
@@ -196,41 +209,38 @@ The project uses `Clean Architecture` with four layers:
 
 #### Domain
 
-- entities: `PhraseCard`, `ReviewTrack`, `UserSettings`
-- enums and value-like data structures
-- review and answer policies
-- business rules without framework dependencies
+- entities: `PhraseCard`, `ReviewTrack`, `UserSettings`, `TelegramQuizSession`
+- enums and core business rules
+- fixed review policy and answer normalization policy
 
 #### Application
 
 - use cases
 - commands, queries, and result DTOs
 - repository and provider ports
-- orchestration of business scenarios
+- orchestration of translation, review, settings, and quiz session flows
 
 #### Infrastructure
 
-- repository implementations
-- translation provider implementations
-- configuration loading
-- clock and runtime adapters
-- persistence adapters for later SQL integration
+- SQLAlchemy repositories
+- SQLite schema
+- translation adapter
+- configuration and clock adapters
+- Telegram reminder service
 
 #### Presentation
 
-- FastAPI routes
-- request and response schemas
-- Telegram handlers and routers
+- FastAPI routes and schemas
+- aiogram handlers and command UX
 
-### 7.3 Patterns
+### 7.3 Applied Patterns
 
 - `Ports and Adapters`
 - `Repository`
 - `Strategy`
 - `Dependency Injection`
 - `DTO`
-- `Entity`
-- `Composition over inheritance`
+- `Composition Root`
 
 ## 8. Domain Model
 
@@ -245,6 +255,7 @@ The project uses `Clean Architecture` with four layers:
 - `created_at`
 - `learning_status`
 - `review_tracks`
+- `archived_reason`
 
 ### 8.2 ReviewTrack
 
@@ -260,9 +271,18 @@ The project uses `Clean Architecture` with four layers:
 - `user_id`
 - `default_source_lang`
 - `default_target_lang`
+- `default_translation_direction`
 - `timezone`
 - `notification_time_local`
 - `notifications_enabled`
+- `last_notification_local_date`
+
+### 8.4 TelegramQuizSession
+
+- `user_id`
+- `card_id`
+- `direction`
+- `started_at`
 
 ## 9. Core Use Cases
 
@@ -270,14 +290,17 @@ The project uses `Clean Architecture` with four layers:
 2. `GetHistory`
 3. `ToggleLearning`
 4. `GetDueReviews`
-5. `SubmitReviewAnswer`
-6. `GetProgress`
-7. `UpdateSettings`
-8. `GetSettings`
+5. `StartQuizSession`
+6. `SkipQuizSession`
+7. `SubmitReviewAnswer`
+8. `SubmitActiveQuizAnswer`
+9. `GetProgress`
+10. `GetSettings`
+11. `UpdateSettings`
 
 ## 10. API Requirements
 
-### 10.1 Minimum Endpoints
+### 10.1 Implemented Endpoints
 
 - `GET /api/v1/health`
 - `POST /api/v1/translations`
@@ -289,19 +312,21 @@ The project uses `Clean Architecture` with four layers:
 - `GET /api/v1/settings`
 - `PUT /api/v1/settings`
 
-### 10.2 Documentation Rules
+### 10.2 API Rules
 
 - every public endpoint must be described by OpenAPI
-- path, query, and body parameters must have descriptions
-- every request must have at least one documented response example
+- translation requests use the stored active language pair
+- translation requests may override only the direction within that pair
+- settings updates must validate timezone and prevent identical source and
+  target languages
 - error responses must be standardized
 
 ## 11. Persistence
 
-### 11.1 MVP Storage
+### 11.1 Current Storage
 
 - `SQLite`
-- migrations with `Alembic`
+- schema creation through SQLAlchemy metadata initialization
 
 ### 11.2 Logical Tables
 
@@ -315,6 +340,7 @@ The project uses `Clean Architecture` with four layers:
 - `target_lang`
 - `learning_status`
 - `created_at`
+- `archived_reason`
 
 #### `review_tracks`
 
@@ -332,18 +358,45 @@ The project uses `Clean Architecture` with four layers:
 - `user_id`
 - `default_source_lang`
 - `default_target_lang`
+- `default_translation_direction`
 - `timezone`
 - `notification_time_local`
 - `notifications_enabled`
+- `last_notification_local_date`
+
+#### `telegram_quiz_sessions`
+
+- `user_id`
+- `card_id`
+- `direction`
+- `started_at`
 
 ## 12. Integrations
 
 ### 12.1 Telegram
 
-- bot token via environment variables
-- webhook or long polling
-- commands `/start`, `/history`, `/progress`, `/settings`
-- plain text treated as translation input
+- bot token from environment variables
+- long polling entrypoint
+- command-based interaction style
+- plain text translation outside an active quiz session
+- plain text answer handling during an active quiz session
+- shared state across devices by Telegram user id
+
+Supported commands:
+
+- `/start`
+- `/history`
+- `/progress`
+- `/settings`
+- `/pair`
+- `/direction`
+- `/notifytime`
+- `/timezone`
+- `/notifications`
+- `/quiz`
+- `/skip`
+- `/notlearning`
+- `/restore`
 
 ### 12.2 Translation Provider
 
@@ -351,43 +404,29 @@ Provider interface:
 
 - `translate(text, source_lang, target_lang) -> TranslationResult`
 
-Adapters:
+Implemented adapter:
 
-- `MockTranslationProvider` for local development
-- `GoogleTranslateProvider` or `DeepLProvider` for production
+- `MockTranslationProvider`
 
 ## 13. Review Logic
 
 ### 13.1 MVP Rule
 
 The intervals `2 / 3 / 5 / 7` are treated as relative steps between successful
-answers. This keeps the reset behavior simple and predictable.
+answers.
 
 ### 13.2 Upgrade Path
 
-The architecture must support both:
+The architecture keeps review policy and translation provider logic behind
+replaceable interfaces so the implementation can evolve without rewriting
+presentation or domain entities.
 
-- `FixedIntervalPolicy` for the assignment-aligned MVP
-- `FsrsPolicy` for a later adaptive scheduler
+## 14. Acceptance Criteria for the Current Stage
 
-The switch should happen in the composition root rather than inside the use
-cases.
+The current core-functionality stage is acceptable when:
 
-## 14. Security and Observability
-
-- secrets must be loaded from environment variables
-- structured logging
-- basic rate limiting at the API and bot edge
-- idempotent handling for repeated updates
-- health-check endpoint
-- trace-friendly request identifiers in logs
-
-## 15. Acceptance Criteria
-
-Changes and feature increments are acceptable when:
-
-- the use case works end to end
-- positive and negative tests exist
-- the endpoint is documented
+- translation, history, settings, quiz, and reminder flows work end to end
+- cards, settings, and active quiz sessions persist across restarts
+- the Telegram bot and HTTP API operate on the same stored data
+- the implemented commands and endpoints match the documented behavior
 - syntax passes `python3 -m compileall`
-- quality gates remain green

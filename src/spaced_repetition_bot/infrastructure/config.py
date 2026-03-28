@@ -10,8 +10,9 @@ class AppConfig(BaseSettings):
     app_version: str = "0.1.0"
     api_prefix: str = "/api/v1"
     debug: bool = False
+    database_url: str = "sqlite:///./spaced_repetition_bot.db"
     telegram_bot_token: str = "change-me"
-    translator_provider: str = "mock"
+    reminder_poll_interval_seconds: int = 60
 
     model_config = SettingsConfigDict(
         env_prefix="SRB_",

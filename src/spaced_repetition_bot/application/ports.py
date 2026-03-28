@@ -7,7 +7,7 @@ from typing import Protocol
 from uuid import UUID
 
 from spaced_repetition_bot.application.dtos import TranslationGatewayResult
-from spaced_repetition_bot.domain.models import PhraseCard, UserSettings
+from spaced_repetition_bot.domain.models import PhraseCard, TelegramQuizSession, UserSettings
 
 
 class Clock(Protocol):
@@ -41,6 +41,22 @@ class SettingsRepository(Protocol):
 
     def save(self, settings: UserSettings) -> UserSettings:
         """Persist settings."""
+
+    def list_all(self) -> list[UserSettings]:
+        """Return all stored settings."""
+
+
+class QuizSessionRepository(Protocol):
+    """Active quiz session storage port."""
+
+    def get(self, user_id: int) -> TelegramQuizSession | None:
+        """Fetch the current quiz session for a user."""
+
+    def save(self, session: TelegramQuizSession) -> TelegramQuizSession:
+        """Persist an active quiz session."""
+
+    def delete(self, user_id: int) -> None:
+        """Delete the current quiz session for a user."""
 
 
 class TranslationProvider(Protocol):

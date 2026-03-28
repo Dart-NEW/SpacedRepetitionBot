@@ -1,13 +1,24 @@
 # SpacedRepetitionBot
 
-SpacedRepetitionBot is a Telegram-first vocabulary learning service that combines
-translation, review scheduling, and progress tracking in a single workflow.
+SpacedRepetitionBot is a Telegram-first vocabulary learning service that joins
+translation, spaced repetition, reminders, and progress tracking in one flow.
+
+This repository currently focuses on the core MVP functionality:
+
+- persistent SQLite storage
+- Telegram translation flow
+- bidirectional quizzes
+- scheduled reminder delivery
+- user settings and learning controls
+
+Testing and extended quality automation are intentionally deferred from this
+stage.
 
 ## Repository Layout
 
 - `docs/technical_specification.md` - product and engineering specification
 - `src/spaced_repetition_bot` - application source code
-- `tests` - unit tests for the core review flow
+- `.env.example` - environment template
 
 ## Stack
 
@@ -16,6 +27,7 @@ translation, review scheduling, and progress tracking in a single workflow.
 - `FastAPI`
 - `Pydantic v2`
 - `SQLAlchemy 2.x`
+- `SQLite`
 
 ## Quick Start
 
@@ -56,24 +68,9 @@ python -m venv .venv
 
 ### 4. Install Dependencies
 
-Install the runtime dependencies:
-
 ```bash
 python3 -m pip install --upgrade pip
 python3 -m pip install -e .
-```
-
-Install the full development toolchain:
-
-```bash
-python3 -m pip install -e ".[db,quality]"
-```
-
-Install local Git hooks:
-
-```bash
-python3 -m pip install pre-commit
-pre-commit install --hook-type pre-push
 ```
 
 ### 5. Configure the Environment
@@ -84,22 +81,22 @@ Create a local `.env` file from the template:
 cp .env.example .env
 ```
 
-Example configuration:
+Default example:
 
 ```env
 SRB_APP_NAME=Spaced Repetition Bot
 SRB_APP_VERSION=0.1.0
 SRB_API_PREFIX=/api/v1
 SRB_DEBUG=false
+SRB_DATABASE_URL=sqlite:///./spaced_repetition_bot.db
 SRB_TELEGRAM_BOT_TOKEN=change-me
-SRB_TRANSLATOR_PROVIDER=mock
+SRB_REMINDER_POLL_INTERVAL_SECONDS=60
 ```
 
 Notes:
 
-- `mock` is the default translation provider for local development
-- no external translation API key is required for the current MVP
-- replace `SRB_TELEGRAM_BOT_TOKEN` before starting the Telegram bot
+- `sqlite:///./spaced_repetition_bot.db` is the default persistent local database
+- `SRB_TELEGRAM_BOT_TOKEN` must be replaced before starting the Telegram bot
 
 ### 6. Start the API
 
@@ -132,13 +129,15 @@ curl -X POST "http://127.0.0.1:8000/api/v1/translations" \
   -d '{
     "user_id": 1,
     "text": "good luck",
-    "source_lang": "en",
-    "target_lang": "es",
+    "direction": "forward",
     "learn": true
   }'
 ```
 
-With the default `mock` provider, the translation response is deterministic.
+The translation request uses the user’s stored active language pair. The
+optional `direction` field switches between `forward` and `reverse` inside that
+pair. The current implementation uses the built-in deterministic translation
+adapter.
 
 ### 8. Start the Telegram Bot
 
@@ -154,54 +153,74 @@ Start long polling:
 python3 -m spaced_repetition_bot.run_telegram_bot
 ```
 
-Supported commands:
+The bot process also runs the reminder scheduler. Run the API and Telegram bot
+as separate processes if you want both interfaces available at the same time.
+Persistent bot state is keyed by Telegram user id, so saved cards, settings,
+and quiz progress are shared across user devices.
+
+## Telegram Commands
 
 - `/start`
 - `/history`
 - `/progress`
+- `/settings`
+- `/pair <source_lang> <target_lang>`
+- `/direction <forward|reverse>`
+- `/notifytime <HH:MM>`
+- `/timezone <IANA timezone>`
+- `/notifications <on|off>`
+- `/quiz`
+- `/skip`
+- `/notlearning <card_id>`
+- `/restore <card_id>`
 
-Any plain text message is treated as a translation request.
+Plain text behavior:
 
-### 9. Run Tests
+- if there is an active quiz session, the next plain text message is treated as the answer
+- otherwise, plain text is translated and optionally saved as a learning card
 
-```bash
-python3 -m pytest -q
-```
+## Core Product Rules
 
-### 10. Check Syntax
+- one active language pair per user
+- one default translation direction per user
+- fixed spaced repetition schedule: `2 / 3 / 5 / 7`
+- two review tracks per card: `forward` and `reverse`
+- a card is learned only after both tracks are completed
+- quiz answers use manual text input only
+- answer matching ignores case, extra spaces, and common hyphen differences
+- an incorrect answer resets the track to the beginning
+- skipping a quiz leaves the card due
+- cards marked as `not_learning` stay in history and can be restored
+
+## HTTP API
+
+Implemented endpoints:
+
+- `GET /api/v1/health`
+- `POST /api/v1/translations`
+- `GET /api/v1/history`
+- `PATCH /api/v1/cards/{card_id}/learning`
+- `GET /api/v1/reviews/due`
+- `POST /api/v1/reviews/{card_id}/answer`
+- `GET /api/v1/progress`
+- `GET /api/v1/settings`
+- `PUT /api/v1/settings`
+
+## Current Deferred Items
+
+- notification frequency as a separate setting
+- multiple quiz formats
+- phrase edit and delete flows
+- multiple active language pairs per user
+- advanced analytics
+- dedicated migration tooling
+- full test and quality automation phase
+
+## Syntax Check
 
 ```bash
 python3 -m compileall src tests
 ```
-
-### 11. Run Quality Checks
-
-```bash
-flake8 src tests
-radon cc -a -s src
-python3 scripts/check_complexity.py src/ --max 9
-radon mi -s src
-bandit -r src -lll
-pytest --maxfail=0 --cov=src --cov-report=term-missing --cov-fail-under=80
-HOME=$PWD/.safety-home safety check
-locust --headless --host=http://localhost:8000 --users=100 --spawn-rate=10 --run-time=5m --csv=results --html report.html
-```
-
-OpenAPI quality is enforced by the API test suite. The schema must keep
-non-empty operation and parameter descriptions, plus at least one documented
-response example for every request.
-
-## Quality Gates
-
-- `Pre-push`: `pre-commit` blocks pushes on any `flake8` error and on any
-  high-severity `bandit` finding in staged source files.
-- `Pre-merge`: GitHub Actions blocks PRs on failed tests, coverage below `80%`,
-  failed quality/security gates, or missing OpenAPI contract checks.
-- `Release`: run the full CI pipeline and a local demo smoke test before
-  presenting the project.
-
-Repository settings still need one external GitHub branch-protection rule:
-require at least one approval from someone other than the PR author.
 
 ## Troubleshooting
 
@@ -213,14 +232,6 @@ The project is not installed in the current environment:
 python3 -m pip install -e .
 ```
 
-### `ModuleNotFoundError: No module named pydantic_settings`
-
-Dependencies are missing or the wrong environment is active:
-
-```bash
-python3 -m pip install -e ".[db,quality]"
-```
-
 ### The Telegram bot does not respond
 
 Check the following:
@@ -229,6 +240,15 @@ Check the following:
 - `SRB_TELEGRAM_BOT_TOKEN` is set in `.env`
 - the token is not still `change-me`
 - the bot is running in a separate process from `uvicorn`
+
+### The API works but reminders do not arrive
+
+Check the following:
+
+- the Telegram bot process is running
+- notifications are enabled with `/notifications on`
+- the user timezone and notification time are configured correctly
+- the user already has saved cards and due reviews
 
 ### `uvicorn` is not found
 
@@ -242,19 +262,5 @@ python3 -m pip install -e .
 
 - `docs/technical_specification.md` - full specification
 - `.env.example` - environment template
-- `locustfile.py` - performance test scenarios
-- `scripts/check_complexity.py` - cyclomatic complexity gate
 - `src/spaced_repetition_bot/main.py` - FastAPI entrypoint
 - `src/spaced_repetition_bot/run_telegram_bot.py` - Telegram polling entrypoint
-
-## Quality Commands
-
-```bash
-python3 -m compileall src tests
-pytest --cov=src --cov-report=term-missing --cov-fail-under=80
-flake8 src tests
-radon cc -a -s src
-radon mi -s src
-bandit -r src
-safety check
-```

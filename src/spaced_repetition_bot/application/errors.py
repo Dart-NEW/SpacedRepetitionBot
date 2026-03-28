@@ -15,3 +15,11 @@ class LearningDisabledError(ApplicationError):
 
 class ReviewNotAvailableError(ApplicationError):
     """Raised when the requested review is not due."""
+
+
+class InvalidSettingsError(ApplicationError):
+    """Raised when user settings are invalid."""
+
+
+class QuizSessionNotFoundError(ApplicationError):
+    """Raised when a Telegram quiz session is missing."""

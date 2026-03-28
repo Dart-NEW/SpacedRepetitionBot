@@ -12,7 +12,6 @@ license = { text = "MIT" }
 dependencies = [
   "aiogram>=3.26,<4.0",
   "fastapi>=0.115,<1.0",
-  "httpx>=0.28,<1.0",
   "pydantic>=2.9,<3.0",
   "pydantic-settings>=2.6,<3.0",
   "sqlalchemy>=2.0,<3.0",

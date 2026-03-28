@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 
 from aiogram import Bot, Dispatcher
 
@@ -17,7 +18,13 @@ async def run() -> None:
     bot = Bot(token=container.config.telegram_bot_token)
     dispatcher = Dispatcher()
     dispatcher.include_router(build_telegram_router(container))
-    await dispatcher.start_polling(bot)
+    reminder_task = asyncio.create_task(container.reminder_service.run(bot))
+    try:
+        await dispatcher.start_polling(bot)
+    finally:
+        reminder_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await reminder_task
 
 
 def main() -> None:

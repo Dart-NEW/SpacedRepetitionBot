@@ -26,4 +26,6 @@ class NormalizedTextAnswerPolicy:
     def normalize(value: str) -> str:
         """Normalize user input for robust string comparison."""
 
+        for dash in ("-", "_", "\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2212"):
+            value = value.replace(dash, " ")
         return " ".join(value.strip().casefold().split())

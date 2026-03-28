@@ -8,6 +8,7 @@ from spaced_repetition_bot.domain.enums import (
 from spaced_repetition_bot.domain.models import (
     PhraseCard,
     ReviewTrack,
+    TelegramQuizSession,
     UserSettings,
 )
 from spaced_repetition_bot.domain.policies import (
@@ -23,5 +24,6 @@ __all__ = [
     "ReviewDirection",
     "ReviewOutcome",
     "ReviewTrack",
+    "TelegramQuizSession",
     "UserSettings",
 ]

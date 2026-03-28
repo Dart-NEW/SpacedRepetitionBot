@@ -1,11 +1,13 @@
 """Application layer."""
 
 from spaced_repetition_bot.application.dtos import (
+    ActiveQuizAnswerResult,
     DueReviewItem,
     GetHistoryQuery,
     GetSettingsQuery,
     GetUserProgressQuery,
     HistoryItem,
+    QuizSessionPrompt,
     ReviewAnswerResult,
     ScheduledReviewItem,
     SubmitReviewAnswerCommand,
@@ -22,6 +24,9 @@ from spaced_repetition_bot.application.use_cases import (
     GetHistoryUseCase,
     GetSettingsUseCase,
     GetUserProgressUseCase,
+    SkipQuizSessionUseCase,
+    StartQuizSessionUseCase,
+    SubmitActiveQuizAnswerUseCase,
     SubmitReviewAnswerUseCase,
     ToggleLearningUseCase,
     TranslatePhraseUseCase,
@@ -29,6 +34,7 @@ from spaced_repetition_bot.application.use_cases import (
 )
 
 __all__ = [
+    "ActiveQuizAnswerResult",
     "DueReviewItem",
     "GetDueReviewsUseCase",
     "GetHistoryQuery",
@@ -38,8 +44,12 @@ __all__ = [
     "GetUserProgressQuery",
     "GetUserProgressUseCase",
     "HistoryItem",
+    "QuizSessionPrompt",
     "ReviewAnswerResult",
     "ScheduledReviewItem",
+    "SkipQuizSessionUseCase",
+    "StartQuizSessionUseCase",
+    "SubmitActiveQuizAnswerUseCase",
     "SubmitReviewAnswerCommand",
     "SubmitReviewAnswerUseCase",
     "ToggleLearningCommand",
