@@ -1,0 +1,50 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "spaced-repetition-bot"
+version = "0.1.0"
+description = "Telegram bot MVP for translation-driven spaced repetition."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+  "aiogram>=3.26,<4.0",
+  "fastapi>=0.115,<1.0",
+  "httpx>=0.28,<1.0",
+  "pydantic>=2.9,<3.0",
+  "pydantic-settings>=2.6,<3.0",
+  "sqlalchemy>=2.0,<3.0",
+  "uvicorn>=0.32,<1.0"
+]
+
+[project.optional-dependencies]
+db = [
+  "alembic>=1.14,<2.0",
+  "aiosqlite>=0.20,<1.0"
+]
+quality = [
+  "bandit>=1.8,<2.0",
+  "flake8>=7.1,<8.0",
+  "locust>=2.33,<3.0",
+  "pytest>=8.3,<9.0",
+  "pytest-cov>=6.0,<7.0",
+  "radon>=6.0,<7.0",
+  "safety>=3.3,<4.0"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/spaced_repetition_bot"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.flake8]
+max-line-length = 100
+extend-ignore = ["W503"]
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101"]
