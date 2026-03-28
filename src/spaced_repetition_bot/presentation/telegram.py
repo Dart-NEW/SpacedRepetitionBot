@@ -24,18 +24,24 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
         if message.from_user is None:
             return
         await message.answer(
-            "Send me a phrase and I will translate it and add it to your review queue."
+            "Send me a phrase and I will translate it "
+            "and add it to your review queue."
         )
 
     @router.message(Command("history"))
     async def handle_history(message: Message) -> None:
         if message.from_user is None:
             return
-        history = container.get_history.execute(GetHistoryQuery(user_id=message.from_user.id))
+        history = container.get_history.execute(
+            GetHistoryQuery(user_id=message.from_user.id)
+        )
         if not history:
             await message.answer("History is empty.")
             return
-        lines = [f"{item.source_text} -> {item.translated_text}" for item in history[:10]]
+        lines = [
+            f"{item.source_text} -> {item.translated_text}"
+            for item in history[:10]
+        ]
         await message.answer("\n".join(lines))
 
     @router.message(Command("progress"))
@@ -46,7 +52,10 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
             GetUserProgressQuery(user_id=message.from_user.id)
         )
         await message.answer(
-            "Cards: {total}, active: {active}, learned: {learned}, due: {due}".format(
+            (
+                "Cards: {total}, active: {active}, "
+                "learned: {learned}, due: {due}"
+            ).format(
                 total=progress.total_cards,
                 active=progress.active_cards,
                 learned=progress.learned_cards,

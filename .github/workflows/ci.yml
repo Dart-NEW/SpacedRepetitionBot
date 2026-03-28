@@ -29,14 +29,89 @@ jobs:
       - name: Lint
         run: flake8 src tests
 
-      - name: Complexity
+
+      - name: Complexity Report
         run: radon cc -a -s src
+
+      - name: Complexity Gate
+        run: python scripts/check_complexity.py src/ --max 9
 
       - name: Maintainability
         run: radon mi -s src
 
-      - name: Test
-        run: pytest --cov=src --cov-report=term-missing --cov-fail-under=80
+      - name: Test and Coverage
+        run: pytest --maxfail=0 --cov=src --cov-report=term-missing --cov-fail-under=80
 
       - name: Security
-        run: bandit -r src
+        run: bandit -r src -lll
+
+      - name: Build Runtime Requirements
+        run: |
+          python -m venv .venv-runtime
+          . .venv-runtime/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install .
+          pip freeze > runtime-requirements.txt
+
+      - name: Dependency Security
+        run: HOME=$PWD/.safety-home safety check -r runtime-requirements.txt
+
+  performance:
+    needs: quality
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[db,quality]"
+
+      - name: Start API
+        run: |
+          python -m uvicorn spaced_repetition_bot.main:app --host 127.0.0.1 --port 8000 &
+          echo $! > uvicorn.pid
+
+      - name: Wait for API
+        run: |
+          python - <<'PY'
+          import time
+          from urllib.request import urlopen
+
+          url = "http://127.0.0.1:8000/api/v1/health"
+          for _ in range(30):
+              try:
+                  with urlopen(url, timeout=1) as response:
+                      if response.status == 200:
+                          raise SystemExit(0)
+              except Exception:
+                  time.sleep(1)
+          raise SystemExit("API did not become ready within 30 seconds.")
+          PY
+
+      - name: Performance
+        run: |
+          locust --headless --host=http://127.0.0.1:8000 --users=100 --spawn-rate=10 --run-time=5m --csv=results --html report.html
+
+      - name: Upload Performance Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-report
+          path: |
+            results*.csv
+            report.html
+
+      - name: Stop API
+        if: always()
+        run: |
+          if [ -f uvicorn.pid ]; then
+            kill "$(cat uvicorn.pid)"
+          fi

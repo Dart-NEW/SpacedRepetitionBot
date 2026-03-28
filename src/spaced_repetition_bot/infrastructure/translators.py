@@ -21,8 +21,14 @@ class MockTranslationProvider:
     ) -> TranslationGatewayResult:
         """Return a deterministic translation-like string."""
 
-        key = (text.strip().casefold(), source_lang.casefold(), target_lang.casefold())
-        translated_text = self.glossary.get(key, f"{text.strip()} ({target_lang.lower()})")
+        key = (
+            text.strip().casefold(),
+            source_lang.casefold(),
+            target_lang.casefold(),
+        )
+        translated_text = self.glossary.get(
+            key, f"{text.strip()} ({target_lang.lower()})"
+        )
         return TranslationGatewayResult(
             translated_text=translated_text,
             provider_name="mock",
