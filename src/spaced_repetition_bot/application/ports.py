@@ -6,7 +6,12 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
-from spaced_repetition_bot.application.dtos import TranslationGatewayResult
+from spaced_repetition_bot.application.dtos import (
+    DueReviewItem,
+    HistoryItem,
+    TranslationGatewayResult,
+    UserProgressSnapshot,
+)
 from spaced_repetition_bot.domain.models import (
     PhraseCard,
     TelegramQuizSession,
@@ -35,6 +40,21 @@ class PhraseRepository(Protocol):
 
     def list_by_user(self, user_id: int) -> list[PhraseCard]:
         """Return all cards for a user."""
+
+    def list_history_by_user(
+        self, user_id: int, limit: int
+    ) -> list[HistoryItem]:
+        """Return recent history rows for a user."""
+
+    def list_due_reviews(
+        self, user_id: int, now: datetime
+    ) -> list[DueReviewItem]:
+        """Return due reviews for a user."""
+
+    def get_progress_snapshot(
+        self, user_id: int, now: datetime
+    ) -> UserProgressSnapshot:
+        """Return aggregated progress for a user."""
 
 
 class SettingsRepository(Protocol):

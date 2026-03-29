@@ -298,10 +298,12 @@ class UpdateSettingsRequest(BaseModel):
     default_target_lang: str = Field(
         description="Default target language code.", examples=["es"]
     )
-    default_translation_direction: ReviewDirection = Field(
+    default_translation_direction: ReviewDirection | None = Field(
+        default=None,
         description=(
             "Default translation direction "
-            "for new translation requests."
+            "for new translation requests. "
+            "When omitted, the current setting is preserved."
         ),
         examples=["forward"],
     )
@@ -739,20 +741,22 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
         )
     ) -> SettingsResponse:
         try:
+            direction = payload.default_translation_direction
+            if direction is None:
+                current = container.get_settings.execute(
+                    GetSettingsQuery(user_id=payload.user_id)
+                )
+                direction = current.default_translation_direction
             result = container.update_settings.execute(
-                    UpdateSettingsCommand(
-                        user_id=payload.user_id,
-                        default_source_lang=payload.default_source_lang,
-                        default_target_lang=payload.default_target_lang,
-                        default_translation_direction=(
-                            payload.default_translation_direction
-                        ),
-                        timezone=payload.timezone,
-                        notification_time_local=(
-                            payload.notification_time_local
-                        ),
-                        notifications_enabled=payload.notifications_enabled,
-                    )
+                UpdateSettingsCommand(
+                    user_id=payload.user_id,
+                    default_source_lang=payload.default_source_lang,
+                    default_target_lang=payload.default_target_lang,
+                    default_translation_direction=direction,
+                    timezone=payload.timezone,
+                    notification_time_local=payload.notification_time_local,
+                    notifications_enabled=payload.notifications_enabled,
+                )
             )
         except ApplicationError as error:
             raise to_http_exception(error) from error

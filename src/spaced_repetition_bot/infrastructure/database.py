@@ -7,11 +7,13 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     Time,
     create_engine,
+    event,
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import (
@@ -32,6 +34,14 @@ class PhraseCardRecord(Base):
     """Database record for phrase cards."""
 
     __tablename__ = "cards"
+    __table_args__ = (
+        Index("ix_cards_user_created_at", "user_id", "created_at"),
+        Index(
+            "ix_cards_user_learning_status",
+            "user_id",
+            "learning_status",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     user_id: Mapped[int] = mapped_column(Integer, index=True)
@@ -56,6 +66,10 @@ class ReviewTrackRecord(Base):
     """Database record for directional review progress."""
 
     __tablename__ = "review_tracks"
+    __table_args__ = (
+        Index("ix_review_tracks_card_direction", "card_id", "direction"),
+        Index("ix_review_tracks_next_review_at", "next_review_at"),
+    )
 
     id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=True
@@ -113,16 +127,23 @@ def build_engine(database_url: str) -> Engine:
     """Build the SQLAlchemy engine."""
 
     if database_url == "sqlite:///:memory:":
-        return create_engine(
+        engine = create_engine(
             database_url,
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
         )
+        _configure_sqlite_engine(engine, enable_wal=False)
+        return engine
     if database_url.startswith("sqlite"):
-        return create_engine(
+        engine = create_engine(
             database_url,
-            connect_args={"check_same_thread": False},
+            connect_args={
+                "check_same_thread": False,
+                "timeout": 30,
+            },
         )
+        _configure_sqlite_engine(engine, enable_wal=True)
+        return engine
     return create_engine(database_url)
 
 
@@ -136,3 +157,19 @@ def initialize_database(engine: Engine) -> None:
     """Create all tables for the MVP schema."""
 
     Base.metadata.create_all(engine)
+
+
+def _configure_sqlite_engine(engine: Engine, *, enable_wal: bool) -> None:
+    """Apply SQLite pragmas that improve concurrent local usage."""
+
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA temp_store=MEMORY")
+        cursor.execute("PRAGMA cache_size=-20000")
+        if enable_wal:
+            cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.close()

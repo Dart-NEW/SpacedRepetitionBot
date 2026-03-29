@@ -25,6 +25,7 @@ class SpacedRepetitionUser(HttpUser):
                 "user_id": self.user_id,
                 "default_source_lang": "en",
                 "default_target_lang": "es",
+                "default_translation_direction": "forward",
                 "timezone": "UTC",
                 "notification_time_local": "09:00:00",
                 "notifications_enabled": True,
@@ -40,8 +41,7 @@ class SpacedRepetitionUser(HttpUser):
             json={
                 "user_id": self.user_id,
                 "text": f"phrase {phrase_number}",
-                "source_lang": "en",
-                "target_lang": "es",
+                "direction": "forward",
                 "learn": True,
             },
         )

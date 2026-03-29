@@ -110,23 +110,7 @@ def list_due_reviews(
 ) -> list[DueReviewItem]:
     """Return sorted due reviews for a user."""
 
-    due_reviews: list[DueReviewItem] = []
-    for card in phrase_repository.list_by_user(user_id):
-        if card.learning_status is not LearningStatus.ACTIVE:
-            continue
-        for track in card.review_tracks:
-            if not track.is_due(now):
-                continue
-            due_reviews.append(
-                DueReviewItem(
-                    card_id=card.id,
-                    direction=track.direction,
-                    prompt_text=card.prompt_for(track.direction),
-                    due_at=track.next_review_at,
-                    step_index=track.step_index,
-                )
-            )
-    return sorted(due_reviews, key=lambda item: item.due_at)
+    return phrase_repository.list_due_reviews(user_id=user_id, now=now)
 
 
 def load_user_card(
@@ -212,23 +196,10 @@ class GetHistoryUseCase:
     phrase_repository: PhraseRepository
 
     def execute(self, query: GetHistoryQuery) -> list[HistoryItem]:
-        cards = sorted(
-            self.phrase_repository.list_by_user(query.user_id),
-            key=lambda card: card.created_at,
-            reverse=True,
+        return self.phrase_repository.list_history_by_user(
+            user_id=query.user_id,
+            limit=query.limit,
         )
-        return [
-            HistoryItem(
-                card_id=card.id,
-                source_text=card.source_text,
-                translated_text=card.target_text,
-                source_lang=card.source_lang,
-                target_lang=card.target_lang,
-                created_at=card.created_at,
-                learning_status=card.learning_status,
-            )
-            for card in cards[: query.limit]
-        ]
 
 
 @dataclass(slots=True)
@@ -330,48 +301,10 @@ class GetUserProgressUseCase:
     clock: Clock
 
     def execute(self, query: GetUserProgressQuery) -> UserProgressSnapshot:
-        cards = self.phrase_repository.list_by_user(query.user_id)
-        progress = self._summarize_cards(cards, self.clock.now())
-        return UserProgressSnapshot(
-            total_cards=len(cards),
-            active_cards=progress["active_cards"],
-            learned_cards=progress["learned_cards"],
-            not_learning_cards=progress["not_learning_cards"],
-            due_reviews=progress["due_reviews"],
-            completed_review_tracks=progress["completed_review_tracks"],
-            total_review_tracks=progress["total_review_tracks"],
+        return self.phrase_repository.get_progress_snapshot(
+            user_id=query.user_id,
+            now=self.clock.now(),
         )
-
-    def _summarize_cards(self, cards: list[PhraseCard], now) -> dict[str, int]:
-        progress = {
-            "active_cards": 0,
-            "learned_cards": 0,
-            "not_learning_cards": 0,
-            "due_reviews": 0,
-            "completed_review_tracks": 0,
-            "total_review_tracks": 0,
-        }
-        for card in cards:
-            self._count_card_status(card, progress)
-            for track in card.review_tracks:
-                progress["total_review_tracks"] += 1
-                if track.is_completed:
-                    progress["completed_review_tracks"] += 1
-                if (
-                    card.learning_status is LearningStatus.ACTIVE
-                    and track.is_due(now)
-                ):
-                    progress["due_reviews"] += 1
-        return progress
-
-    @staticmethod
-    def _count_card_status(card: PhraseCard, progress: dict[str, int]) -> None:
-        if card.learning_status is LearningStatus.ACTIVE:
-            progress["active_cards"] += 1
-        elif card.learning_status is LearningStatus.LEARNED:
-            progress["learned_cards"] += 1
-        else:
-            progress["not_learning_cards"] += 1
 
 
 @dataclass(slots=True)

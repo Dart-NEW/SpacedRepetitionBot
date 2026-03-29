@@ -6,9 +6,15 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import and_, case, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker, selectinload
 
+from spaced_repetition_bot.application.dtos import (
+    DueReviewItem,
+    HistoryItem,
+    UserProgressSnapshot,
+)
 from spaced_repetition_bot.domain.enums import (
     LearningStatus,
     ReviewDirection,
@@ -57,6 +63,84 @@ class InMemoryPhraseRepository:
         return [
             card for card in self._cards.values() if card.user_id == user_id
         ]
+
+    def list_history_by_user(
+        self, user_id: int, limit: int
+    ) -> list[HistoryItem]:
+        cards = sorted(
+            self.list_by_user(user_id),
+            key=lambda card: card.created_at,
+            reverse=True,
+        )
+        return [
+            HistoryItem(
+                card_id=card.id,
+                source_text=card.source_text,
+                translated_text=card.target_text,
+                source_lang=card.source_lang,
+                target_lang=card.target_lang,
+                created_at=card.created_at,
+                learning_status=card.learning_status,
+            )
+            for card in cards[:limit]
+        ]
+
+    def list_due_reviews(
+        self, user_id: int, now: datetime
+    ) -> list[DueReviewItem]:
+        due_reviews: list[DueReviewItem] = []
+        for card in self.list_by_user(user_id):
+            if card.learning_status is not LearningStatus.ACTIVE:
+                continue
+            for track in card.review_tracks:
+                if not track.is_due(now):
+                    continue
+                due_reviews.append(
+                    DueReviewItem(
+                        card_id=card.id,
+                        direction=track.direction,
+                        prompt_text=card.prompt_for(track.direction),
+                        due_at=track.next_review_at,
+                        step_index=track.step_index,
+                    )
+                )
+        return sorted(due_reviews, key=lambda item: item.due_at)
+
+    def get_progress_snapshot(
+        self, user_id: int, now: datetime
+    ) -> UserProgressSnapshot:
+        cards = self.list_by_user(user_id)
+        active_cards = 0
+        learned_cards = 0
+        not_learning_cards = 0
+        due_reviews = 0
+        completed_review_tracks = 0
+        total_review_tracks = 0
+        for card in cards:
+            if card.learning_status is LearningStatus.ACTIVE:
+                active_cards += 1
+            elif card.learning_status is LearningStatus.LEARNED:
+                learned_cards += 1
+            else:
+                not_learning_cards += 1
+            for track in card.review_tracks:
+                total_review_tracks += 1
+                if track.is_completed:
+                    completed_review_tracks += 1
+                if (
+                    card.learning_status is LearningStatus.ACTIVE
+                    and track.is_due(now)
+                ):
+                    due_reviews += 1
+        return UserProgressSnapshot(
+            total_cards=len(cards),
+            active_cards=active_cards,
+            learned_cards=learned_cards,
+            not_learning_cards=not_learning_cards,
+            due_reviews=due_reviews,
+            completed_review_tracks=completed_review_tracks,
+            total_review_tracks=total_review_tracks,
+        )
 
 
 @dataclass(slots=True)
@@ -154,6 +238,22 @@ def _record_to_quiz_session(
     )
 
 
+def _apply_settings(
+    record: UserSettingsRecord, settings: UserSettings
+) -> None:
+    record.default_source_lang = settings.default_source_lang
+    record.default_target_lang = settings.default_target_lang
+    record.default_translation_direction = (
+        settings.default_translation_direction.value
+    )
+    record.timezone = settings.timezone
+    record.notification_time_local = settings.notification_time_local
+    record.notifications_enabled = settings.notifications_enabled
+    record.last_notification_local_date = (
+        settings.last_notification_local_date
+    )
+
+
 def _apply_card(record: PhraseCardRecord, card: PhraseCard) -> None:
     record.user_id = card.user_id
     record.source_text = card.source_text
@@ -233,6 +333,144 @@ class SqlAlchemyPhraseRepository:
             ).scalars()
             return [_record_to_card(record) for record in records]
 
+    def list_history_by_user(
+        self, user_id: int, limit: int
+    ) -> list[HistoryItem]:
+        with self.session_factory() as session:
+            rows = session.execute(
+                select(
+                    PhraseCardRecord.id,
+                    PhraseCardRecord.source_text,
+                    PhraseCardRecord.target_text,
+                    PhraseCardRecord.source_lang,
+                    PhraseCardRecord.target_lang,
+                    PhraseCardRecord.created_at,
+                    PhraseCardRecord.learning_status,
+                )
+                .where(PhraseCardRecord.user_id == user_id)
+                .order_by(PhraseCardRecord.created_at.desc())
+                .limit(limit)
+            ).all()
+            return [
+                HistoryItem(
+                    card_id=UUID(row.id),
+                    source_text=row.source_text,
+                    translated_text=row.target_text,
+                    source_lang=row.source_lang,
+                    target_lang=row.target_lang,
+                    created_at=_normalize_datetime(row.created_at),
+                    learning_status=LearningStatus(row.learning_status),
+                )
+                for row in rows
+            ]
+
+    def list_due_reviews(
+        self, user_id: int, now: datetime
+    ) -> list[DueReviewItem]:
+        with self.session_factory() as session:
+            rows = session.execute(
+                select(
+                    PhraseCardRecord.id,
+                    PhraseCardRecord.source_text,
+                    PhraseCardRecord.target_text,
+                    ReviewTrackRecord.direction,
+                    ReviewTrackRecord.next_review_at,
+                    ReviewTrackRecord.step_index,
+                )
+                .join(
+                    ReviewTrackRecord,
+                    ReviewTrackRecord.card_id == PhraseCardRecord.id,
+                )
+                .where(
+                    PhraseCardRecord.user_id == user_id,
+                    PhraseCardRecord.learning_status
+                    == LearningStatus.ACTIVE.value,
+                    ReviewTrackRecord.completed_at.is_(None),
+                    ReviewTrackRecord.next_review_at.is_not(None),
+                    ReviewTrackRecord.next_review_at
+                    <= _normalize_datetime(now),
+                )
+                .order_by(ReviewTrackRecord.next_review_at)
+            ).all()
+            return [
+                DueReviewItem(
+                    card_id=UUID(row.id),
+                    direction=ReviewDirection(row.direction),
+                    prompt_text=(
+                        row.source_text
+                        if row.direction == ReviewDirection.FORWARD.value
+                        else row.target_text
+                    ),
+                    due_at=_normalize_datetime(row.next_review_at),
+                    step_index=row.step_index,
+                )
+                for row in rows
+            ]
+
+    def get_progress_snapshot(
+        self, user_id: int, now: datetime
+    ) -> UserProgressSnapshot:
+        now_utc = _normalize_datetime(now)
+        with self.session_factory() as session:
+            card_rows = session.execute(
+                select(
+                    PhraseCardRecord.learning_status,
+                    func.count(PhraseCardRecord.id),
+                )
+                .where(PhraseCardRecord.user_id == user_id)
+                .group_by(PhraseCardRecord.learning_status)
+            ).all()
+            card_counts = {row.learning_status: row[1] for row in card_rows}
+            track_row = session.execute(
+                select(
+                    func.count(ReviewTrackRecord.id),
+                    func.sum(
+                        case(
+                            (
+                                ReviewTrackRecord.completed_at.is_not(None),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                    func.sum(
+                        case(
+                            (
+                                and_(
+                                    PhraseCardRecord.learning_status
+                                    == LearningStatus.ACTIVE.value,
+                                    ReviewTrackRecord.completed_at.is_(None),
+                                    ReviewTrackRecord.next_review_at.is_not(
+                                        None
+                                    ),
+                                    ReviewTrackRecord.next_review_at
+                                    <= now_utc,
+                                ),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ),
+                )
+                .select_from(PhraseCardRecord)
+                .join(
+                    ReviewTrackRecord,
+                    ReviewTrackRecord.card_id == PhraseCardRecord.id,
+                )
+                .where(PhraseCardRecord.user_id == user_id)
+            ).one()
+        return UserProgressSnapshot(
+            total_cards=sum(card_counts.values()),
+            active_cards=card_counts.get(LearningStatus.ACTIVE.value, 0),
+            learned_cards=card_counts.get(LearningStatus.LEARNED.value, 0),
+            not_learning_cards=card_counts.get(
+                LearningStatus.NOT_LEARNING.value, 0
+            ),
+            due_reviews=track_row[2] or 0,
+            completed_review_tracks=track_row[1] or 0,
+            total_review_tracks=track_row[0] or 0,
+        )
+
     def _get_committed(self, session, card_id: UUID) -> PhraseCard:
         record = session.execute(
             select(PhraseCardRecord)
@@ -261,18 +499,16 @@ class SqlAlchemySettingsRepository:
             if record is None:
                 record = UserSettingsRecord(user_id=settings.user_id)
                 session.add(record)
-            record.default_source_lang = settings.default_source_lang
-            record.default_target_lang = settings.default_target_lang
-            record.default_translation_direction = (
-                settings.default_translation_direction.value
-            )
-            record.timezone = settings.timezone
-            record.notification_time_local = settings.notification_time_local
-            record.notifications_enabled = settings.notifications_enabled
-            record.last_notification_local_date = (
-                settings.last_notification_local_date
-            )
-            session.commit()
+            _apply_settings(record, settings)
+            try:
+                session.commit()
+            except IntegrityError:
+                session.rollback()
+                record = session.get(UserSettingsRecord, settings.user_id)
+                if record is None:
+                    raise
+                _apply_settings(record, settings)
+                session.commit()
             return _record_to_settings(record)
 
     def list_all(self) -> list[UserSettings]:
