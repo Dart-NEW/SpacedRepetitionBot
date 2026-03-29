@@ -22,6 +22,7 @@ from spaced_repetition_bot.application.errors import (
     ApplicationError,
     InvalidSettingsError,
     QuizSessionNotFoundError,
+    TranslationProviderError,
 )
 from spaced_repetition_bot.bootstrap import ApplicationContainer
 from spaced_repetition_bot.domain.enums import ReviewDirection
@@ -239,6 +240,9 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
                     text=message.text,
                 )
             )
+        except TranslationProviderError:
+            await message.answer("Translation provider is unavailable right now.")
+            return
         except ApplicationError as error:
             await message.answer(str(error))
             return

@@ -23,6 +23,7 @@ from spaced_repetition_bot.application.errors import (
     InvalidSettingsError,
     LearningDisabledError,
     ReviewNotAvailableError,
+    TranslationProviderError,
 )
 from spaced_repetition_bot.bootstrap import ApplicationContainer
 from spaced_repetition_bot.domain.enums import LearningStatus, ReviewDirection, ReviewOutcome
@@ -603,6 +604,11 @@ def to_http_exception(error: ApplicationError) -> HTTPException:
         return HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(error),
+        )
+    if isinstance(error, TranslationProviderError):
+        return HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Translation provider is unavailable.",
         )
     return HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

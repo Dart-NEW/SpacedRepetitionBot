@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from spaced_repetition_bot.application.ports import TranslationProvider
 from spaced_repetition_bot.application.use_cases import (
     GetDueReviewsUseCase,
     GetHistoryUseCase,
@@ -34,7 +35,10 @@ from spaced_repetition_bot.infrastructure.repositories import (
     SqlAlchemyQuizSessionRepository,
     SqlAlchemySettingsRepository,
 )
-from spaced_repetition_bot.infrastructure.translators import MockTranslationProvider
+from spaced_repetition_bot.infrastructure.translators import (
+    MockTranslationProvider,
+    YandexTranslationProvider,
+)
 
 
 @dataclass(slots=True)
@@ -67,9 +71,13 @@ def build_container(config: AppConfig | None = None) -> ApplicationContainer:
     initialize_database(engine)
     session_factory = build_session_factory(engine)
     phrase_repository = SqlAlchemyPhraseRepository(session_factory=session_factory)
-    settings_repository = SqlAlchemySettingsRepository(session_factory=session_factory)
-    quiz_session_repository = SqlAlchemyQuizSessionRepository(session_factory=session_factory)
-    translator = MockTranslationProvider()
+    settings_repository = SqlAlchemySettingsRepository(
+        session_factory=session_factory
+    )
+    quiz_session_repository = SqlAlchemyQuizSessionRepository(
+        session_factory=session_factory
+    )
+    translator = build_translation_provider(app_config)
     spaced_repetition_policy = FixedIntervalSpacedRepetitionPolicy()
     answer_evaluation_policy = NormalizedTextAnswerPolicy()
     submit_review_answer = SubmitReviewAnswerUseCase(
@@ -126,4 +134,27 @@ def build_container(config: AppConfig | None = None) -> ApplicationContainer:
             clock=clock,
             poll_interval_seconds=app_config.reminder_poll_interval_seconds,
         ),
+    )
+
+
+def build_translation_provider(config: AppConfig) -> TranslationProvider:
+    """Build the configured translation provider."""
+
+    if config.translation_provider == "mock":
+        return MockTranslationProvider()
+    if not config.yandex_translate_api_key:
+        raise ValueError(
+            "SRB_YANDEX_TRANSLATE_API_KEY must be set when "
+            "SRB_TRANSLATION_PROVIDER=yandex."
+        )
+    if not config.yandex_folder_id:
+        raise ValueError(
+            "SRB_YANDEX_FOLDER_ID must be set when "
+            "SRB_TRANSLATION_PROVIDER=yandex."
+        )
+    return YandexTranslationProvider(
+        api_key=config.yandex_translate_api_key,
+        folder_id=config.yandex_folder_id,
+        endpoint_url=config.yandex_translate_url,
+        timeout_seconds=config.translation_timeout_seconds,
     )
