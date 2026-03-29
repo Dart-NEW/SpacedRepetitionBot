@@ -95,6 +95,40 @@ class InMemoryPhraseRepository:
             card for card in self._cards.values() if card.user_id == user_id
         ]
 
+    def find_matching_card(
+        self,
+        *,
+        user_id: int,
+        source_text: str,
+        translated_text: str,
+        source_lang: str,
+        target_lang: str,
+    ) -> PhraseCard | None:
+        normalized_source = (
+            source_text.strip().casefold().replace("-", " ").split()
+        )
+        normalized_target = (
+            translated_text.strip().casefold().replace("-", " ").split()
+        )
+        for card in self.list_by_user(user_id):
+            if (
+                card.source_lang != source_lang
+                or card.target_lang != target_lang
+            ):
+                continue
+            current_source = (
+                card.source_text.strip().casefold().replace("-", " ").split()
+            )
+            current_target = (
+                card.target_text.strip().casefold().replace("-", " ").split()
+            )
+            if (
+                current_source == normalized_source
+                and current_target == normalized_target
+            ):
+                return card
+        return None
+
     def list_history_by_user(
         self, user_id: int, limit: int
     ) -> list[HistoryItem]:
@@ -338,7 +372,7 @@ class SqlAlchemyPhraseRepository:
             _apply_card(record, card)
             session.add(record)
             session.commit()
-            return self._get_committed(session, card.id)
+            return card
 
     def save(self, card: PhraseCard) -> PhraseCard:
         with self.session_factory() as session:
@@ -352,7 +386,7 @@ class SqlAlchemyPhraseRepository:
                 session.add(record)
             _apply_card(record, card)
             session.commit()
-            return self._get_committed(session, card.id)
+            return card
 
     def get(self, card_id: UUID) -> PhraseCard | None:
         with self.session_factory() as session:
@@ -373,6 +407,42 @@ class SqlAlchemyPhraseRepository:
                 .where(PhraseCardRecord.user_id == user_id)
             ).scalars()
             return [_record_to_card(record) for record in records]
+
+    def find_matching_card(
+        self,
+        *,
+        user_id: int,
+        source_text: str,
+        translated_text: str,
+        source_lang: str,
+        target_lang: str,
+    ) -> PhraseCard | None:
+        normalized_source = source_text.strip().casefold()
+        normalized_target = translated_text.strip().casefold()
+        with self.session_factory() as session:
+            record = session.execute(
+                select(PhraseCardRecord)
+                .options(selectinload(PhraseCardRecord.review_tracks))
+                .where(
+                    PhraseCardRecord.user_id == user_id,
+                    PhraseCardRecord.source_lang == source_lang,
+                    PhraseCardRecord.target_lang == target_lang,
+                    func.lower(func.trim(PhraseCardRecord.source_text))
+                    == normalized_source,
+                    func.lower(func.trim(PhraseCardRecord.target_text))
+                    == normalized_target,
+                )
+                .limit(1)
+            ).scalar_one_or_none()
+            if record is not None:
+                return _record_to_card(record)
+        return self._find_matching_card_fallback(
+            user_id=user_id,
+            source_text=source_text,
+            translated_text=translated_text,
+            source_lang=source_lang,
+            target_lang=target_lang,
+        )
 
     def list_history_by_user(
         self, user_id: int, limit: int
@@ -512,13 +582,39 @@ class SqlAlchemyPhraseRepository:
             total_review_tracks=track_row[0] or 0,
         )
 
-    def _get_committed(self, session, card_id: UUID) -> PhraseCard:
-        record = session.execute(
-            select(PhraseCardRecord)
-            .options(selectinload(PhraseCardRecord.review_tracks))
-            .where(PhraseCardRecord.id == str(card_id))
-        ).scalar_one()
-        return _record_to_card(record)
+    def _find_matching_card_fallback(
+        self,
+        *,
+        user_id: int,
+        source_text: str,
+        translated_text: str,
+        source_lang: str,
+        target_lang: str,
+    ) -> PhraseCard | None:
+        normalized_source = (
+            source_text.strip().casefold().replace("-", " ").split()
+        )
+        normalized_target = (
+            translated_text.strip().casefold().replace("-", " ").split()
+        )
+        for card in self.list_by_user(user_id):
+            if (
+                card.source_lang != source_lang
+                or card.target_lang != target_lang
+            ):
+                continue
+            current_source = (
+                card.source_text.strip().casefold().replace("-", " ").split()
+            )
+            current_target = (
+                card.target_text.strip().casefold().replace("-", " ").split()
+            )
+            if (
+                current_source == normalized_source
+                and current_target == normalized_target
+            ):
+                return card
+        return None
 
 
 @dataclass(slots=True)

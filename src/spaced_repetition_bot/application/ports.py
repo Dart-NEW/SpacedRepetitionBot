@@ -41,6 +41,17 @@ class PhraseRepository(Protocol):
     def list_by_user(self, user_id: int) -> list[PhraseCard]:
         """Return all cards for a user."""
 
+    def find_matching_card(
+        self,
+        *,
+        user_id: int,
+        source_text: str,
+        translated_text: str,
+        source_lang: str,
+        target_lang: str,
+    ) -> PhraseCard | None:
+        """Return an existing card that matches the translation payload."""
+
     def list_history_by_user(
         self, user_id: int, limit: int
     ) -> list[HistoryItem]:

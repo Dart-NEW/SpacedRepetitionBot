@@ -140,17 +140,13 @@ def find_existing_translation_card(
 ) -> PhraseCard | None:
     """Return an existing matching card for a user if present."""
 
-    normalized_source = normalize_text(source_text)
-    normalized_target = normalize_text(translated_text)
-    for card in phrase_repository.list_by_user(user_id):
-        if (
-            card.source_lang == source_lang
-            and card.target_lang == target_lang
-            and normalize_text(card.source_text) == normalized_source
-            and normalize_text(card.target_text) == normalized_target
-        ):
-            return card
-    return None
+    return phrase_repository.find_matching_card(
+        user_id=user_id,
+        source_text=source_text,
+        translated_text=translated_text,
+        source_lang=source_lang,
+        target_lang=target_lang,
+    )
 
 
 def list_due_reviews(
