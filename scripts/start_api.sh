@@ -9,6 +9,15 @@ PID_FILE="${RUN_DIR}/api.pid"
 HOST="${SRB_UVICORN_HOST:-127.0.0.1}"
 PORT="${SRB_UVICORN_PORT:-8000}"
 
+resolve_python() {
+    if [[ -x "${APP_DIR}/.venv/bin/python" ]]; then
+        printf '%s\n' "${APP_DIR}/.venv/bin/python"
+        return 0
+    fi
+
+    printf '%s\n' "python3"
+}
+
 mkdir -p "${RUN_DIR}" "${LOG_DIR}"
 
 if [[ -f "${PID_FILE}" ]] && kill -0 "$(cat "${PID_FILE}")" 2>/dev/null; then
@@ -19,7 +28,7 @@ fi
 rm -f "${PID_FILE}"
 
 cd "${APP_DIR}"
-nohup "${APP_DIR}/.venv/bin/python" -m uvicorn spaced_repetition_bot.main:app \
+nohup "$(resolve_python)" -m uvicorn spaced_repetition_bot.main:app \
     --host "${HOST}" \
     --port "${PORT}" \
     >> "${LOG_DIR}/api.log" 2>&1 &

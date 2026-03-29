@@ -7,6 +7,15 @@ RUN_DIR="${APP_DIR}/.run"
 LOG_DIR="${APP_DIR}/logs"
 PID_FILE="${RUN_DIR}/bot.pid"
 
+resolve_python() {
+    if [[ -x "${APP_DIR}/.venv/bin/python" ]]; then
+        printf '%s\n' "${APP_DIR}/.venv/bin/python"
+        return 0
+    fi
+
+    printf '%s\n' "python3"
+}
+
 mkdir -p "${RUN_DIR}" "${LOG_DIR}"
 
 if [[ -f "${PID_FILE}" ]] && kill -0 "$(cat "${PID_FILE}")" 2>/dev/null; then
@@ -17,7 +26,7 @@ fi
 rm -f "${PID_FILE}"
 
 cd "${APP_DIR}"
-nohup "${APP_DIR}/.venv/bin/python" -m spaced_repetition_bot.run_telegram_bot \
+nohup "$(resolve_python)" -m spaced_repetition_bot.run_telegram_bot \
     >> "${LOG_DIR}/bot.log" 2>&1 &
 echo $! > "${PID_FILE}"
 

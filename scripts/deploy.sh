@@ -9,6 +9,7 @@ BACKUP_DIR="${APP_DIR}/backups"
 DEFAULT_API_PREFIX="/api/v1"
 DEFAULT_SQLITE_URL="sqlite:///./spaced_repetition_bot.db"
 DEFAULT_PORT="8000"
+GET_PIP_URL="https://bootstrap.pypa.io/get-pip.py"
 
 read_env_value() {
     local key="$1"
@@ -91,6 +92,30 @@ wait_for_api() {
     return 1
 }
 
+bootstrap_user_pip() {
+    if python3 -m pip --version >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local get_pip_script
+    get_pip_script="$(mktemp)"
+    curl -fsSL "${GET_PIP_URL}" -o "${get_pip_script}"
+    python3 "${get_pip_script}" --user
+    rm -f "${get_pip_script}"
+}
+
+install_runtime() {
+    if [[ -x "${APP_DIR}/.venv/bin/python" ]]; then
+        "${APP_DIR}/.venv/bin/python" -m pip install --upgrade pip
+        "${APP_DIR}/.venv/bin/python" -m pip install .
+        return 0
+    fi
+
+    bootstrap_user_pip
+    python3 -m pip install --user --upgrade pip
+    python3 -m pip install --user .
+}
+
 cd "${APP_DIR}"
 
 if [[ ! -f "${APP_DIR}/.env" ]]; then
@@ -105,12 +130,7 @@ git fetch "${REMOTE}" "${BRANCH}"
 git checkout "${BRANCH}"
 git pull --ff-only "${REMOTE}" "${BRANCH}"
 
-if [[ ! -d "${APP_DIR}/.venv" ]]; then
-    python3 -m venv "${APP_DIR}/.venv"
-fi
-
-"${APP_DIR}/.venv/bin/python" -m pip install --upgrade pip
-"${APP_DIR}/.venv/bin/python" -m pip install .
+install_runtime
 
 bash "${APP_DIR}/scripts/start_api.sh"
 wait_for_api
