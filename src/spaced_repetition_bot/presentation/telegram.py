@@ -795,73 +795,97 @@ def _build_translation_keyboard(
     has_due_reviews: bool,
     show_warning_actions: bool,
 ) -> InlineKeyboardMarkup:
-    keyboard: list[list[InlineKeyboardButton]] = [
-        [
-            InlineKeyboardButton(
-                text=(
-                    "Try reverse"
-                    if show_warning_actions
-                    else "Reverse"
-                ),
-                callback_data="translation:reverse",
-            ),
-            InlineKeyboardButton(
-                text="Settings",
-                callback_data=(
-                    (
-                        "settings:pair"
-                        if show_warning_actions
-                        else "settings:open"
-                    )
-                ),
-            ),
-        ],
-    ]
-    if card_id is not None and learning_status is not None:
-        toggle_text = (
-            "Restore"
-            if learning_status is LearningStatus.NOT_LEARNING
-            else "Pause learning"
-        )
-        toggle_prefix = (
-            "card:restore:"
-            if learning_status is LearningStatus.NOT_LEARNING
-            else "card:pause:"
-        )
-        keyboard.append(
-            [
-                InlineKeyboardButton(
-                    text=toggle_text,
-                    callback_data=f"{toggle_prefix}{card_id}",
-                )
-            ]
-        )
-        if has_due_reviews:
-            keyboard[-1].append(
-                InlineKeyboardButton(
-                    text="Quiz now",
-                    callback_data="quiz:continue",
-                )
-            )
-    elif has_due_reviews:
-        keyboard.append(
-            [
-                InlineKeyboardButton(
-                    text="Quiz now",
-                    callback_data="quiz:continue",
-                )
-            ]
-        )
-    if show_warning_actions:
-        keyboard.append(
-            [
-                InlineKeyboardButton(
-                    text="Keep anyway",
-                    callback_data="translation:keep",
-                )
-            ]
-        )
+    keyboard = [_build_translation_primary_row(show_warning_actions)]
+    action_row = _build_translation_action_row(
+        card_id=card_id,
+        learning_status=learning_status,
+        has_due_reviews=has_due_reviews,
+    )
+    if action_row is not None:
+        keyboard.append(action_row)
+    warning_row = _build_translation_warning_row(show_warning_actions)
+    if warning_row is not None:
+        keyboard.append(warning_row)
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def _build_translation_primary_row(
+    show_warning_actions: bool,
+) -> list[InlineKeyboardButton]:
+    return [
+        InlineKeyboardButton(
+            text="Try reverse" if show_warning_actions else "Reverse",
+            callback_data="translation:reverse",
+        ),
+        InlineKeyboardButton(
+            text="Settings",
+            callback_data=(
+                "settings:pair" if show_warning_actions else "settings:open"
+            ),
+        ),
+    ]
+
+
+def _build_translation_action_row(
+    *,
+    card_id: UUID | None,
+    learning_status: LearningStatus | None,
+    has_due_reviews: bool,
+) -> list[InlineKeyboardButton] | None:
+    if card_id is not None and learning_status is not None:
+        return _build_saved_translation_action_row(
+            card_id=card_id,
+            learning_status=learning_status,
+            has_due_reviews=has_due_reviews,
+        )
+    if not has_due_reviews:
+        return None
+    return [_build_quiz_now_button()]
+
+
+def _build_saved_translation_action_row(
+    *,
+    card_id: UUID,
+    learning_status: LearningStatus,
+    has_due_reviews: bool,
+) -> list[InlineKeyboardButton]:
+    row = [_build_learning_toggle_button(card_id, learning_status)]
+    if has_due_reviews:
+        row.append(_build_quiz_now_button())
+    return row
+
+
+def _build_learning_toggle_button(
+    card_id: UUID,
+    learning_status: LearningStatus,
+) -> InlineKeyboardButton:
+    is_paused = learning_status is LearningStatus.NOT_LEARNING
+    action_text = "Restore" if is_paused else "Pause learning"
+    action_name = "restore" if is_paused else "pause"
+    return InlineKeyboardButton(
+        text=action_text,
+        callback_data=f"card:{action_name}:{card_id}",
+    )
+
+
+def _build_quiz_now_button() -> InlineKeyboardButton:
+    return InlineKeyboardButton(
+        text="Quiz now",
+        callback_data="quiz:continue",
+    )
+
+
+def _build_translation_warning_row(
+    show_warning_actions: bool,
+) -> list[InlineKeyboardButton] | None:
+    if not show_warning_actions:
+        return None
+    return [
+        InlineKeyboardButton(
+            text="Keep anyway",
+            callback_data="translation:keep",
+        )
+    ]
 
 
 def _build_quiz_intro_keyboard() -> InlineKeyboardMarkup:

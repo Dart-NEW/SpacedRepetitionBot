@@ -246,7 +246,10 @@ class TranslatePhraseUseCase:
             detected_source_lang=translated.detected_source_lang,
             expected_source_lang=source_lang,
         )
-        if warning_state.has_pair_warning and not command.save_with_warning:
+        if self._should_return_warning_preview(
+            warning_state=warning_state,
+            command=command,
+        ):
             return self._build_preview_result(
                 command=command,
                 translated_text=translated.translated_text,
@@ -280,7 +283,6 @@ class TranslatePhraseUseCase:
             self._build_new_card(
                 command=command,
                 translated_text=translated.translated_text,
-                direction=direction,
                 source_lang=source_lang,
                 target_lang=target_lang,
             )
@@ -326,16 +328,25 @@ class TranslatePhraseUseCase:
             ),
         )
 
+    def _should_return_warning_preview(
+        self,
+        *,
+        warning_state: TranslationWarningState,
+        command: TranslatePhraseCommand,
+    ) -> bool:
+        return (
+            warning_state.has_pair_warning
+            and not command.save_with_warning
+        )
+
     def _build_new_card(
         self,
         *,
         command: TranslatePhraseCommand,
         translated_text: str,
-        direction: ReviewDirection,
         source_lang: str,
         target_lang: str,
     ) -> PhraseCard:
-        del direction
         now = self.clock.now()
         learning_status, archived_reason = self._resolve_learning_state(
             command.learn
