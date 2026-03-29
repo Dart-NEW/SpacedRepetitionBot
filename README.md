@@ -91,12 +91,20 @@ SRB_DEBUG=false
 SRB_DATABASE_URL=sqlite:///./spaced_repetition_bot.db
 SRB_TELEGRAM_BOT_TOKEN=change-me
 SRB_REMINDER_POLL_INTERVAL_SECONDS=60
+SRB_TRANSLATION_PROVIDER=mock
+SRB_YANDEX_TRANSLATE_API_KEY=
+SRB_YANDEX_FOLDER_ID=
+SRB_YANDEX_TRANSLATE_URL=https://translate.api.cloud.yandex.net/translate/v2/translate
+SRB_TRANSLATION_TIMEOUT_SECONDS=10
 ```
 
 Notes:
 
 - `sqlite:///./spaced_repetition_bot.db` is the default persistent local database
 - `SRB_TELEGRAM_BOT_TOKEN` must be replaced before starting the Telegram bot
+- `SRB_TRANSLATION_PROVIDER=mock` keeps the deterministic local translator
+- switch `SRB_TRANSLATION_PROVIDER` to `yandex` only after setting
+  `SRB_YANDEX_TRANSLATE_API_KEY` and `SRB_YANDEX_FOLDER_ID`
 
 ### 6. Start the API
 
@@ -136,8 +144,22 @@ curl -X POST "http://127.0.0.1:8000/api/v1/translations" \
 
 The translation request uses the user’s stored active language pair. The
 optional `direction` field switches between `forward` and `reverse` inside that
-pair. The current implementation uses the built-in deterministic translation
-adapter.
+pair. By default the application uses the built-in deterministic translation
+adapter. Set `SRB_TRANSLATION_PROVIDER=yandex` to use Yandex Cloud Translate.
+
+### 7.1 Enable Yandex Translate
+
+Update `.env`:
+
+```env
+SRB_TRANSLATION_PROVIDER=yandex
+SRB_YANDEX_TRANSLATE_API_KEY=<your-api-key>
+SRB_YANDEX_FOLDER_ID=<your-folder-id>
+SRB_TRANSLATION_TIMEOUT_SECONDS=10
+```
+
+When `SRB_TRANSLATION_PROVIDER=yandex`, the application fails on startup if the
+API key or folder id is missing.
 
 ### 8. Start the Telegram Bot
 
@@ -249,6 +271,14 @@ Check the following:
 - notifications are enabled with `/notifications on`
 - the user timezone and notification time are configured correctly
 - the user already has saved cards and due reviews
+
+### The app does not start with `SRB_TRANSLATION_PROVIDER=yandex`
+
+Check the following:
+
+- `SRB_YANDEX_TRANSLATE_API_KEY` is set
+- `SRB_YANDEX_FOLDER_ID` is set
+- the Yandex Cloud Translate API is enabled for the configured folder
 
 ### `uvicorn` is not found
 

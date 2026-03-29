@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -44,6 +45,8 @@ from spaced_repetition_bot.domain.policies import (
     AnswerEvaluationPolicy,
     SpacedRepetitionPolicy,
 )
+
+LANGUAGE_CODE_PATTERN = re.compile(r"^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$")
 
 
 def default_settings(user_id: int) -> UserSettings:
@@ -327,12 +330,18 @@ class UpdateSettingsUseCase:
     settings_repository: SettingsRepository
 
     def execute(self, command: UpdateSettingsCommand) -> UserSettingsSnapshot:
-        self._validate(command)
+        source_lang = self._normalize_language_code(command.default_source_lang)
+        target_lang = self._normalize_language_code(command.default_target_lang)
+        self._validate(
+            source_lang=source_lang,
+            target_lang=target_lang,
+            timezone=command.timezone,
+        )
         current = self.settings_repository.get(command.user_id) or default_settings(command.user_id)
         settings = UserSettings(
             user_id=command.user_id,
-            default_source_lang=command.default_source_lang,
-            default_target_lang=command.default_target_lang,
+            default_source_lang=source_lang,
+            default_target_lang=target_lang,
             default_translation_direction=command.default_translation_direction,
             timezone=command.timezone,
             notification_time_local=command.notification_time_local,
@@ -342,13 +351,27 @@ class UpdateSettingsUseCase:
         stored = self.settings_repository.save(settings)
         return map_settings_snapshot(stored)
 
-    def _validate(self, command: UpdateSettingsCommand) -> None:
-        if command.default_source_lang.casefold() == command.default_target_lang.casefold():
+    def _validate(
+        self,
+        *,
+        source_lang: str,
+        target_lang: str,
+        timezone: str,
+    ) -> None:
+        if source_lang == target_lang:
             raise InvalidSettingsError("Source and target languages must differ.")
+        if not LANGUAGE_CODE_PATTERN.fullmatch(source_lang):
+            raise InvalidSettingsError("Source language code is invalid.")
+        if not LANGUAGE_CODE_PATTERN.fullmatch(target_lang):
+            raise InvalidSettingsError("Target language code is invalid.")
         try:
-            ZoneInfo(command.timezone)
+            ZoneInfo(timezone)
         except ZoneInfoNotFoundError as error:
             raise InvalidSettingsError("Timezone must be a valid IANA timezone.") from error
+
+    @staticmethod
+    def _normalize_language_code(language_code: str) -> str:
+        return language_code.strip().replace("_", "-").casefold()
 
 
 @dataclass(slots=True)

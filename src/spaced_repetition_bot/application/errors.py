@@ -23,3 +23,7 @@ class InvalidSettingsError(ApplicationError):
 
 class QuizSessionNotFoundError(ApplicationError):
     """Raised when a Telegram quiz session is missing."""
+
+
+class TranslationProviderError(ApplicationError):
+    """Raised when an external translation provider fails."""
