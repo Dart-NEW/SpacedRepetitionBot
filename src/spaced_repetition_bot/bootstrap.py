@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from spaced_repetition_bot.application.ports import TranslationProvider
 from spaced_repetition_bot.application.use_cases import (
+    EndQuizSessionUseCase,
     GetDueReviewsUseCase,
     GetHistoryUseCase,
     GetSettingsUseCase,
@@ -54,6 +55,7 @@ class ApplicationContainer:
     get_due_reviews: GetDueReviewsUseCase
     start_quiz_session: StartQuizSessionUseCase
     skip_quiz_session: SkipQuizSessionUseCase
+    end_quiz_session: EndQuizSessionUseCase
     submit_active_quiz_answer: SubmitActiveQuizAnswerUseCase
     submit_review_answer: SubmitReviewAnswerUseCase
     get_user_progress: GetUserProgressUseCase
@@ -118,12 +120,18 @@ def build_container(config: AppConfig | None = None) -> ApplicationContainer:
         ),
         start_quiz_session=start_quiz_session,
         skip_quiz_session=SkipQuizSessionUseCase(
+            phrase_repository=phrase_repository,
+            quiz_session_repository=quiz_session_repository,
+            clock=clock,
+        ),
+        end_quiz_session=EndQuizSessionUseCase(
             quiz_session_repository=quiz_session_repository,
         ),
         submit_active_quiz_answer=SubmitActiveQuizAnswerUseCase(
             quiz_session_repository=quiz_session_repository,
+            phrase_repository=phrase_repository,
             submit_review_answer_use_case=submit_review_answer,
-            start_quiz_session_use_case=start_quiz_session,
+            clock=clock,
         ),
         submit_review_answer=submit_review_answer,
         get_user_progress=GetUserProgressUseCase(

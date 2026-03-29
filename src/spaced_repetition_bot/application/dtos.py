@@ -54,6 +54,9 @@ class TranslationResult:
     target_lang: str
     learning_status: LearningStatus
     provider_name: str
+    detected_source_lang: str | None
+    is_identity_translation: bool
+    has_pair_warning: bool
     scheduled_reviews: tuple[ScheduledReviewItem, ScheduledReviewItem]
 
 
@@ -184,6 +187,29 @@ class QuizSessionPrompt:
     prompt_text: str
     expected_answer: str
     step_index: int
+    session_position: int = 1
+    total_prompts: int = 1
+
+
+@dataclass(frozen=True, slots=True)
+class QuizSessionStartResult:
+    """Telegram quiz session state returned on start or resume."""
+
+    prompt: QuizSessionPrompt
+    due_reviews_total: int
+    session_prompts_total: int
+    awaiting_start: bool
+
+
+@dataclass(frozen=True, slots=True)
+class QuizSessionSummary:
+    """Compact summary returned when a quiz session completes."""
+
+    total_prompts: int
+    answered_prompts: int
+    correct_prompts: int
+    incorrect_prompts: int
+    remaining_due_reviews: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,3 +218,12 @@ class ActiveQuizAnswerResult:
 
     review_result: ReviewAnswerResult
     next_prompt: QuizSessionPrompt | None
+    session_summary: QuizSessionSummary | None
+
+
+@dataclass(frozen=True, slots=True)
+class SkipQuizResult:
+    """Result of skipping the current quiz card."""
+
+    next_prompt: QuizSessionPrompt | None
+    session_summary: QuizSessionSummary | None

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import json
 from uuid import UUID
 
 from sqlalchemy import and_, case, func, select
@@ -22,6 +23,7 @@ from spaced_repetition_bot.domain.enums import (
 )
 from spaced_repetition_bot.domain.models import (
     PhraseCard,
+    QuizReviewPointer,
     ReviewTrack,
     TelegramQuizSession,
     UserSettings,
@@ -40,6 +42,35 @@ def _normalize_datetime(value: datetime | None) -> datetime | None:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _serialize_pending_reviews(
+    pending_reviews: tuple[QuizReviewPointer, ...],
+) -> str:
+    return json.dumps(
+        [
+            {
+                "card_id": str(item.card_id),
+                "direction": item.direction.value,
+            }
+            for item in pending_reviews
+        ]
+    )
+
+
+def _deserialize_pending_reviews(raw_value: str | None) -> (
+    tuple[QuizReviewPointer, ...]
+):
+    if not raw_value:
+        return ()
+    items = json.loads(raw_value)
+    return tuple(
+        QuizReviewPointer(
+            card_id=UUID(item["card_id"]),
+            direction=ReviewDirection(item["direction"]),
+        )
+        for item in items
+    )
 
 
 @dataclass(slots=True)
@@ -235,6 +266,16 @@ def _record_to_quiz_session(
         card_id=UUID(record.card_id),
         direction=ReviewDirection(record.direction),
         started_at=_normalize_datetime(record.started_at),
+        pending_reviews=_deserialize_pending_reviews(
+            record.pending_reviews_json
+        ),
+        total_prompts=record.total_prompts,
+        due_reviews_total=record.due_reviews_total,
+        answered_prompts=record.answered_prompts,
+        correct_prompts=record.correct_prompts,
+        incorrect_prompts=record.incorrect_prompts,
+        awaiting_start=record.awaiting_start,
+        message_id=record.message_id,
     )
 
 
@@ -543,6 +584,16 @@ class SqlAlchemyQuizSessionRepository:
             record.card_id = str(quiz_session.card_id)
             record.direction = quiz_session.direction.value
             record.started_at = _normalize_datetime(quiz_session.started_at)
+            record.pending_reviews_json = _serialize_pending_reviews(
+                quiz_session.pending_reviews
+            )
+            record.total_prompts = quiz_session.total_prompts
+            record.due_reviews_total = quiz_session.due_reviews_total
+            record.answered_prompts = quiz_session.answered_prompts
+            record.correct_prompts = quiz_session.correct_prompts
+            record.incorrect_prompts = quiz_session.incorrect_prompts
+            record.awaiting_start = quiz_session.awaiting_start
+            record.message_id = quiz_session.message_id
             session.commit()
             return _record_to_quiz_session(record)
 

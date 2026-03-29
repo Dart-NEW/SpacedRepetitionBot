@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import re
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -14,9 +14,12 @@ from spaced_repetition_bot.application.dtos import (
     GetSettingsQuery,
     GetUserProgressQuery,
     HistoryItem,
+    QuizSessionStartResult,
     QuizSessionPrompt,
+    QuizSessionSummary,
     ReviewAnswerResult,
     ScheduledReviewItem,
+    SkipQuizResult,
     SubmitReviewAnswerCommand,
     ToggleLearningCommand,
     TranslatePhraseCommand,
@@ -46,15 +49,18 @@ from spaced_repetition_bot.domain.enums import (
 )
 from spaced_repetition_bot.domain.models import (
     PhraseCard,
+    QuizReviewPointer,
     TelegramQuizSession,
     UserSettings,
 )
 from spaced_repetition_bot.domain.policies import (
     AnswerEvaluationPolicy,
+    NormalizedTextAnswerPolicy,
     SpacedRepetitionPolicy,
 )
 
 LANGUAGE_CODE_PATTERN = re.compile(r"^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$")
+QUIZ_SESSION_LIMIT = 10
 
 
 def default_settings(user_id: int) -> UserSettings:
@@ -88,8 +94,26 @@ def map_scheduled_review(track) -> ScheduledReviewItem:
     )
 
 
+def normalize_text(value: str) -> str:
+    """Normalize text for user-facing translation heuristics."""
+
+    return NormalizedTextAnswerPolicy.normalize(value)
+
+
+def normalize_language_code(language_code: str | None) -> str | None:
+    """Normalize provider language codes for comparisons."""
+
+    if language_code is None:
+        return None
+    return language_code.strip().replace("_", "-").casefold()
+
+
 def build_quiz_prompt(
-    card: PhraseCard, direction: ReviewDirection
+    card: PhraseCard,
+    direction: ReviewDirection,
+    *,
+    session_position: int = 1,
+    total_prompts: int = 1,
 ) -> QuizSessionPrompt:
     """Build a Telegram quiz prompt from a card."""
 
@@ -100,6 +124,8 @@ def build_quiz_prompt(
         prompt_text=card.prompt_for(direction),
         expected_answer=card.expected_answer_for(direction),
         step_index=track.step_index,
+        session_position=session_position,
+        total_prompts=total_prompts,
     )
 
 
@@ -128,6 +154,25 @@ def load_user_card(
     return card
 
 
+def build_quiz_summary(
+    *,
+    total_prompts: int,
+    answered_prompts: int,
+    correct_prompts: int,
+    incorrect_prompts: int,
+    remaining_due_reviews: int,
+) -> QuizSessionSummary:
+    """Create a summary DTO for a completed quiz session."""
+
+    return QuizSessionSummary(
+        total_prompts=total_prompts,
+        answered_prompts=answered_prompts,
+        correct_prompts=correct_prompts,
+        incorrect_prompts=incorrect_prompts,
+        remaining_due_reviews=remaining_due_reviews,
+    )
+
+
 @dataclass(slots=True)
 class TranslatePhraseUseCase:
     """Translate text and create a learning card."""
@@ -150,6 +195,17 @@ class TranslatePhraseUseCase:
             text=command.text,
             source_lang=source_lang,
             target_lang=target_lang,
+        )
+        detected_source_lang = normalize_language_code(
+            translated.detected_source_lang
+        )
+        is_identity_translation = (
+            normalize_text(command.text)
+            == normalize_text(translated.translated_text)
+        )
+        has_pair_warning = is_identity_translation or (
+            detected_source_lang is not None
+            and detected_source_lang != normalize_language_code(source_lang)
         )
         now = self.clock.now()
         tracks = self.spaced_repetition_policy.initialize_tracks(now)
@@ -182,6 +238,9 @@ class TranslatePhraseUseCase:
             target_lang=stored_card.target_lang,
             learning_status=stored_card.learning_status,
             provider_name=translated.provider_name,
+            detected_source_lang=detected_source_lang,
+            is_identity_translation=is_identity_translation,
+            has_pair_warning=has_pair_warning,
             scheduled_reviews=tuple(
                 map_scheduled_review(track)
                 for track in stored_card.review_tracks
@@ -380,7 +439,10 @@ class UpdateSettingsUseCase:
 
     @staticmethod
     def _normalize_language_code(language_code: str) -> str:
-        return language_code.strip().replace("_", "-").casefold()
+        normalized = normalize_language_code(language_code)
+        if normalized is None:
+            raise InvalidSettingsError("Language code is invalid.")
+        return normalized
 
 
 @dataclass(slots=True)
@@ -391,12 +453,23 @@ class StartQuizSessionUseCase:
     quiz_session_repository: QuizSessionRepository
     clock: Clock
 
-    def execute(self, user_id: int) -> QuizSessionPrompt | None:
+    def execute(
+        self,
+        user_id: int,
+        *,
+        activate: bool = False,
+        message_id: int | None = None,
+    ) -> QuizSessionStartResult | None:
         existing = self.quiz_session_repository.get(user_id)
         if existing is not None:
-            prompt = self._resume(existing)
-            if prompt is not None:
-                return prompt
+            session = self._resume(existing)
+            if session is not None:
+                session = self._activate_session(
+                    session=session,
+                    activate=activate,
+                    message_id=message_id,
+                )
+                return self._build_start_result(session)
             self.quiz_session_repository.delete(user_id)
         due_reviews = list_due_reviews(
             phrase_repository=self.phrase_repository,
@@ -405,26 +478,41 @@ class StartQuizSessionUseCase:
         )
         if not due_reviews:
             return None
-        first_review = due_reviews[0]
+        session_reviews = due_reviews[:QUIZ_SESSION_LIMIT]
+        first_review = session_reviews[0]
         session = TelegramQuizSession(
             user_id=user_id,
             card_id=first_review.card_id,
             direction=first_review.direction,
             started_at=self.clock.now(),
-        )
-        self.quiz_session_repository.save(session)
-        return build_quiz_prompt(
-            card=load_user_card(
-                phrase_repository=self.phrase_repository,
-                card_id=first_review.card_id,
-                user_id=user_id,
+            pending_reviews=tuple(
+                QuizReviewPointer(
+                    card_id=item.card_id,
+                    direction=item.direction,
+                )
+                for item in session_reviews[1:]
             ),
-            direction=first_review.direction,
+            total_prompts=len(session_reviews),
+            due_reviews_total=len(due_reviews),
+            awaiting_start=not activate,
+            message_id=message_id,
+        )
+        session = self.quiz_session_repository.save(session)
+        return self._build_start_result(session)
+
+    def _build_start_result(
+        self, session: TelegramQuizSession
+    ) -> QuizSessionStartResult:
+        return QuizSessionStartResult(
+            prompt=self._build_prompt(session),
+            due_reviews_total=session.due_reviews_total,
+            session_prompts_total=session.total_prompts,
+            awaiting_start=session.awaiting_start,
         )
 
     def _resume(
         self, session: TelegramQuizSession
-    ) -> QuizSessionPrompt | None:
+    ) -> TelegramQuizSession | None:
         try:
             card = load_user_card(
                 self.phrase_repository, session.card_id, session.user_id
@@ -436,12 +524,118 @@ class StartQuizSessionUseCase:
         track = card.track_for(session.direction)
         if not track.is_due(self.clock.now()):
             return None
-        return build_quiz_prompt(card=card, direction=session.direction)
+        return session
+
+    def _activate_session(
+        self,
+        *,
+        session: TelegramQuizSession,
+        activate: bool,
+        message_id: int | None,
+    ) -> TelegramQuizSession:
+        if not activate and message_id is None:
+            return session
+        updated = session
+        if activate and session.awaiting_start:
+            updated = replace(updated, awaiting_start=False)
+        if message_id is not None and updated.message_id != message_id:
+            updated = replace(updated, message_id=message_id)
+        if updated == session:
+            return session
+        return self.quiz_session_repository.save(updated)
+
+    def _build_prompt(
+        self, session: TelegramQuizSession
+    ) -> QuizSessionPrompt:
+        card = load_user_card(
+            phrase_repository=self.phrase_repository,
+            card_id=session.card_id,
+            user_id=session.user_id,
+        )
+        return build_quiz_prompt(
+            card=card,
+            direction=session.direction,
+            session_position=session.answered_prompts + 1,
+            total_prompts=session.total_prompts,
+        )
 
 
 @dataclass(slots=True)
 class SkipQuizSessionUseCase:
-    """Skip the active Telegram quiz session without changing progress."""
+    """Skip the current card and advance the Telegram quiz session."""
+
+    phrase_repository: PhraseRepository
+    quiz_session_repository: QuizSessionRepository
+    clock: Clock
+
+    def execute(self, user_id: int) -> SkipQuizResult | None:
+        session = self.quiz_session_repository.get(user_id)
+        if session is None:
+            return None
+        next_session = self._advance(session)
+        if next_session is None:
+            self.quiz_session_repository.delete(user_id)
+            return SkipQuizResult(
+                next_prompt=None,
+                session_summary=self._build_summary(session),
+            )
+        stored_session = self.quiz_session_repository.save(next_session)
+        return SkipQuizResult(
+            next_prompt=self._build_prompt(stored_session),
+            session_summary=None,
+        )
+
+    def _advance(
+        self, session: TelegramQuizSession
+    ) -> TelegramQuizSession | None:
+        if not session.pending_reviews:
+            return None
+        next_item = session.pending_reviews[0]
+        return replace(
+            session,
+            card_id=next_item.card_id,
+            direction=next_item.direction,
+            pending_reviews=session.pending_reviews[1:],
+            awaiting_start=False,
+        )
+
+    def _build_prompt(
+        self, session: TelegramQuizSession
+    ) -> QuizSessionPrompt:
+        card = load_user_card(
+            phrase_repository=self.phrase_repository,
+            card_id=session.card_id,
+            user_id=session.user_id,
+        )
+        return build_quiz_prompt(
+            card=card,
+            direction=session.direction,
+            session_position=session.answered_prompts + 1,
+            total_prompts=session.total_prompts,
+        )
+
+    def _build_summary(
+        self, session: TelegramQuizSession
+    ) -> QuizSessionSummary:
+        remaining_due_reviews = len(
+            list_due_reviews(
+                phrase_repository=self.phrase_repository,
+                user_id=session.user_id,
+                now=self.clock.now(),
+            )
+        )
+        return build_quiz_summary(
+            total_prompts=session.total_prompts,
+            answered_prompts=session.answered_prompts,
+            correct_prompts=session.correct_prompts,
+            incorrect_prompts=session.incorrect_prompts,
+            remaining_due_reviews=remaining_due_reviews,
+        )
+
+
+@dataclass(slots=True)
+class EndQuizSessionUseCase:
+    """Exit the active Telegram quiz session immediately."""
 
     quiz_session_repository: QuizSessionRepository
 
@@ -458,8 +652,9 @@ class SubmitActiveQuizAnswerUseCase:
     """Submit an answer for the current Telegram quiz session."""
 
     quiz_session_repository: QuizSessionRepository
+    phrase_repository: PhraseRepository
     submit_review_answer_use_case: SubmitReviewAnswerUseCase
-    start_quiz_session_use_case: StartQuizSessionUseCase
+    clock: Clock
 
     def execute(
         self, user_id: int, answer_text: str
@@ -467,6 +662,8 @@ class SubmitActiveQuizAnswerUseCase:
         session = self.quiz_session_repository.get(user_id)
         if session is None:
             raise QuizSessionNotFoundError("No active quiz session was found.")
+        if session.awaiting_start:
+            raise QuizSessionNotFoundError("Start the quiz before answering.")
         review_result = self.submit_review_answer_use_case.execute(
             SubmitReviewAnswerCommand(
                 user_id=user_id,
@@ -475,9 +672,88 @@ class SubmitActiveQuizAnswerUseCase:
                 answer_text=answer_text,
             )
         )
-        self.quiz_session_repository.delete(user_id)
-        next_prompt = self.start_quiz_session_use_case.execute(user_id)
+        next_session = self._advance(
+            session=session,
+            was_correct=review_result.outcome is ReviewOutcome.CORRECT,
+        )
+        if next_session is None:
+            self.quiz_session_repository.delete(user_id)
+            return ActiveQuizAnswerResult(
+                review_result=review_result,
+                next_prompt=None,
+                session_summary=self._build_summary(
+                    session=session,
+                    was_correct=review_result.outcome
+                    is ReviewOutcome.CORRECT,
+                ),
+            )
+        stored_session = self.quiz_session_repository.save(next_session)
         return ActiveQuizAnswerResult(
             review_result=review_result,
-            next_prompt=next_prompt,
+            next_prompt=self._build_prompt(stored_session),
+            session_summary=None,
+        )
+
+    def _advance(
+        self,
+        *,
+        session: TelegramQuizSession,
+        was_correct: bool,
+    ) -> TelegramQuizSession | None:
+        if not session.pending_reviews:
+            return None
+        next_item = session.pending_reviews[0]
+        return replace(
+            session,
+            card_id=next_item.card_id,
+            direction=next_item.direction,
+            pending_reviews=session.pending_reviews[1:],
+            answered_prompts=session.answered_prompts + 1,
+            correct_prompts=(
+                session.correct_prompts + (1 if was_correct else 0)
+            ),
+            incorrect_prompts=(
+                session.incorrect_prompts + (0 if was_correct else 1)
+            ),
+            awaiting_start=False,
+        )
+
+    def _build_prompt(
+        self, session: TelegramQuizSession
+    ) -> QuizSessionPrompt:
+        card = load_user_card(
+            phrase_repository=self.phrase_repository,
+            card_id=session.card_id,
+            user_id=session.user_id,
+        )
+        return build_quiz_prompt(
+            card=card,
+            direction=session.direction,
+            session_position=session.answered_prompts + 1,
+            total_prompts=session.total_prompts,
+        )
+
+    def _build_summary(
+        self,
+        *,
+        session: TelegramQuizSession,
+        was_correct: bool,
+    ) -> QuizSessionSummary:
+        remaining_due_reviews = len(
+            list_due_reviews(
+                phrase_repository=self.phrase_repository,
+                user_id=session.user_id,
+                now=self.clock.now(),
+            )
+        )
+        return build_quiz_summary(
+            total_prompts=session.total_prompts,
+            answered_prompts=session.answered_prompts + 1,
+            correct_prompts=(
+                session.correct_prompts + (1 if was_correct else 0)
+            ),
+            incorrect_prompts=(
+                session.incorrect_prompts + (0 if was_correct else 1)
+            ),
+            remaining_due_reviews=remaining_due_reviews,
         )

@@ -58,6 +58,7 @@ def build_api_test_context() -> ApiTestContext:
         get_due_reviews=use_cases["due"],
         start_quiz_session=use_cases["start_quiz"],
         skip_quiz_session=use_cases["skip_quiz"],
+        end_quiz_session=use_cases["end_quiz"],
         submit_active_quiz_answer=use_cases["submit_active_quiz"],
         submit_review_answer=use_cases["answer"],
         get_user_progress=use_cases["progress"],

@@ -6,13 +6,11 @@ translation, spaced repetition, reminders, and progress tracking in one flow.
 This repository currently focuses on the core MVP functionality:
 
 - persistent SQLite storage
-- Telegram translation flow
-- bidirectional quizzes
+- Telegram translation cards with action buttons
+- bidirectional quiz sessions
 - scheduled reminder delivery
 - user settings and learning controls
-
-Testing and extended quality automation are intentionally deferred from this
-stage.
+- automated tests and quality checks
 
 ## Repository Layout
 
@@ -160,6 +158,7 @@ Update `.env`:
 SRB_TRANSLATION_PROVIDER=yandex
 SRB_YANDEX_TRANSLATE_API_KEY=<your-api-key>
 SRB_YANDEX_FOLDER_ID=<your-folder-id>
+SRB_YANDEX_TRANSLATE_URL=https://translate.api.cloud.yandex.net/translate/v2/translate
 SRB_TRANSLATION_TIMEOUT_SECONDS=10
 ```
 
@@ -184,6 +183,14 @@ The bot process also runs the reminder scheduler. Run the API and Telegram bot
 as separate processes if you want both interfaces available at the same time.
 Persistent bot state is keyed by Telegram user id, so saved cards, settings,
 and quiz progress are shared across user devices.
+
+In Telegram, the default happy path is chat-first:
+
+- plain text creates a translation card
+- inline buttons open settings, pause or restore cards, and launch quizzes
+- `/quiz` opens a short review session with `Start quiz`, `Skip card`, and
+  `End session`
+- reminder messages include a direct `Start quiz` button
 
 ### 8.1 Fast Reminder Testing
 
@@ -211,8 +218,9 @@ the reminder flow without waiting for multiple days.
 - `/notifications <on|off>`
 - `/quiz`
 - `/skip`
-- `/notlearning <card_id>`
-- `/restore <card_id>`
+- `/notlearning <card_id|short_id>`
+- `/restore <card_id|short_id>`
+- `/cancel`
 
 Plain text behavior:
 
@@ -231,6 +239,7 @@ Plain text behavior:
 - an incorrect answer resets the track to the beginning
 - skipping a quiz leaves the card due
 - cards marked as `not_learning` stay in history and can be restored
+- `/history` shows short card ids for quick pause and restore commands
 
 ## HTTP API
 
@@ -254,12 +263,14 @@ Implemented endpoints:
 - multiple active language pairs per user
 - advanced analytics
 - dedicated migration tooling
-- full test and quality automation phase
 
-## Syntax Check
+## Quality Checks
 
 ```bash
 python3 -m compileall src tests
+.venv/bin/python -m flake8 src tests
+.venv/bin/python scripts/check_complexity.py src/ --max 9
+.venv/bin/python -m pytest -q
 ```
 
 ## Troubleshooting
@@ -296,7 +307,7 @@ Check the following:
 
 - `SRB_YANDEX_TRANSLATE_API_KEY` is set
 - `SRB_YANDEX_FOLDER_ID` is set
-- the Yandex Cloud Translate API is enabled for the configured folder
+- `SRB_YANDEX_TRANSLATE_URL` points to the expected Yandex endpoint
 
 ### `uvicorn` is not found
 

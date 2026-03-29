@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from spaced_repetition_bot.application.use_cases import (
+    EndQuizSessionUseCase,
     GetDueReviewsUseCase,
     GetHistoryUseCase,
     GetSettingsUseCase,
@@ -121,12 +122,18 @@ def build_test_use_cases(dependencies: dict[str, object]) -> dict[str, object]:
         ),
         "start_quiz": start_quiz_session,
         "skip_quiz": SkipQuizSessionUseCase(
+            phrase_repository=phrase_repository,
+            quiz_session_repository=quiz_session_repository,
+            clock=clock,
+        ),
+        "end_quiz": EndQuizSessionUseCase(
             quiz_session_repository=quiz_session_repository,
         ),
         "submit_active_quiz": SubmitActiveQuizAnswerUseCase(
             quiz_session_repository=quiz_session_repository,
+            phrase_repository=phrase_repository,
             submit_review_answer_use_case=submit_review_answer,
-            start_quiz_session_use_case=start_quiz_session,
+            clock=clock,
         ),
     }
 

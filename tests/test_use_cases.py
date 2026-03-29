@@ -104,12 +104,15 @@ def build_test_context(now: datetime) -> dict[str, object]:
         ),
         "start_quiz": start_quiz_session,
         "skip_quiz": SkipQuizSessionUseCase(
+            phrase_repository=phrase_repository,
             quiz_session_repository=quiz_session_repository,
+            clock=clock,
         ),
         "submit_active_quiz": SubmitActiveQuizAnswerUseCase(
             quiz_session_repository=quiz_session_repository,
+            phrase_repository=phrase_repository,
             submit_review_answer_use_case=submit_review_answer,
-            start_quiz_session_use_case=start_quiz_session,
+            clock=clock,
         ),
     }
 
@@ -168,12 +171,15 @@ def build_test_context_with_scheduler(
         ),
         "start_quiz": start_quiz_session,
         "skip_quiz": SkipQuizSessionUseCase(
+            phrase_repository=phrase_repository,
             quiz_session_repository=quiz_session_repository,
+            clock=clock,
         ),
         "submit_active_quiz": SubmitActiveQuizAnswerUseCase(
             quiz_session_repository=quiz_session_repository,
+            phrase_repository=phrase_repository,
             submit_review_answer_use_case=submit_review_answer,
-            start_quiz_session_use_case=start_quiz_session,
+            clock=clock,
         ),
     }
 
@@ -356,14 +362,14 @@ def test_quiz_session_resumes_and_moves_to_next_due_prompt() -> None:
     )
     context["clock"].current = now + timedelta(days=2)
 
-    first_prompt = context["start_quiz"].execute(user_id=1)
+    first_prompt = context["start_quiz"].execute(user_id=1, activate=True)
     quiz_result = context["submit_active_quiz"].execute(
         user_id=1,
         answer_text="buena suerte",
     )
 
     assert first_prompt is not None
-    assert first_prompt.card_id == translate_result.card_id
+    assert first_prompt.prompt.card_id == translate_result.card_id
     assert quiz_result.review_result.outcome is ReviewOutcome.CORRECT
     assert quiz_result.next_prompt is not None
     assert quiz_result.next_prompt.direction is ReviewDirection.REVERSE
@@ -377,10 +383,11 @@ def test_skip_quiz_session_keeps_reviews_due() -> None:
     )
     context["clock"].current = now + timedelta(days=2)
 
-    prompt = context["start_quiz"].execute(user_id=1)
+    prompt = context["start_quiz"].execute(user_id=1, activate=True)
     skipped = context["skip_quiz"].execute(user_id=1)
     due_reviews = context["due"].execute(user_id=1)
 
     assert prompt is not None
-    assert skipped is True
+    assert skipped is not None
+    assert skipped.next_prompt is not None
     assert len(due_reviews) == 2
