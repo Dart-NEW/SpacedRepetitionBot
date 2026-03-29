@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import requests
+from requests.adapters import HTTPAdapter
 from requests import Response, Session
 
 from spaced_repetition_bot.application.errors import (
@@ -12,6 +13,8 @@ from spaced_repetition_bot.application.errors import (
     TranslationProviderError,
 )
 from spaced_repetition_bot.application.dtos import TranslationGatewayResult
+
+YANDEX_HTTP_POOL_SIZE = 100
 
 
 @dataclass(slots=True)
@@ -52,6 +55,16 @@ class YandexTranslationProvider:
     endpoint_url: str
     timeout_seconds: float = 10.0
     session: Session = field(default_factory=Session)
+
+    def __post_init__(self) -> None:
+        adapter = HTTPAdapter(
+            pool_connections=YANDEX_HTTP_POOL_SIZE,
+            pool_maxsize=YANDEX_HTTP_POOL_SIZE,
+        )
+        if not hasattr(self.session, "mount"):
+            return
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
 
     def translate(
         self,

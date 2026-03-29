@@ -27,6 +27,10 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.pool import StaticPool
 
+SQLITE_POOL_SIZE = 50
+SQLITE_POOL_MAX_OVERFLOW = 100
+SQLITE_POOL_TIMEOUT_SECONDS = 30
+
 
 class Base(DeclarativeBase):
     """SQLAlchemy declarative base."""
@@ -167,6 +171,9 @@ def build_engine(database_url: str) -> Engine:
                 "check_same_thread": False,
                 "timeout": 30,
             },
+            pool_size=SQLITE_POOL_SIZE,
+            max_overflow=SQLITE_POOL_MAX_OVERFLOW,
+            pool_timeout=SQLITE_POOL_TIMEOUT_SECONDS,
         )
         _configure_sqlite_engine(engine, enable_wal=True)
         return engine
