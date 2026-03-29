@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -34,12 +35,16 @@ def test_app_config_reads_environment_overrides(
     monkeypatch.setenv("SRB_APP_NAME", "Quality Gate Bot")
     monkeypatch.setenv("SRB_APP_VERSION", "1.2.3")
     monkeypatch.setenv("SRB_API_PREFIX", "/api/quality")
+    monkeypatch.setenv("SRB_REVIEW_INTERVALS", "2,3,5,7")
+    monkeypatch.setenv("SRB_REVIEW_INTERVAL_UNIT", "minutes")
 
     config = AppConfig()
 
     assert config.app_name == "Quality Gate Bot"
     assert config.app_version == "1.2.3"
     assert config.api_prefix == "/api/quality"
+    assert config.review_intervals == (2, 3, 5, 7)
+    assert config.review_interval_unit == "minutes"
 
 
 def test_system_clock_returns_timezone_aware_utc_datetime() -> None:
@@ -48,10 +53,16 @@ def test_system_clock_returns_timezone_aware_utc_datetime() -> None:
     assert current_time.tzinfo == timezone.utc
 
 
-def test_build_container_wires_use_cases_against_shared_repositories() -> None:
+def test_build_container_wires_use_cases_against_shared_repositories(
+    tmp_path: Path,
+) -> None:
     container = build_container(
         AppConfig(
-            app_name="Test App", app_version="2.0.0", api_prefix="/api/test"
+            app_name="Test App",
+            app_version="2.0.0",
+            api_prefix="/api/test",
+            database_url=f"sqlite:///{tmp_path / 'wiring.db'}",
+            translation_provider="mock",
         )
     )
 
@@ -68,6 +79,39 @@ def test_build_container_wires_use_cases_against_shared_repositories() -> None:
     assert translation.source_lang == "en"
     assert translation.target_lang == "es"
     assert container.config.app_name == "Test App"
+
+
+def test_build_container_honors_configured_minute_review_schedule(
+    tmp_path: Path,
+) -> None:
+    before = datetime.now(timezone.utc)
+    container = build_container(
+        AppConfig(
+            app_name="Test App",
+            app_version="2.0.0",
+            api_prefix="/api/test",
+            database_url=f"sqlite:///{tmp_path / 'schedule.db'}",
+            review_intervals=(2, 3, 5, 7),
+            review_interval_unit="minutes",
+            translation_provider="mock",
+        )
+    )
+
+    translation = container.translate_phrase.execute(
+        TranslatePhraseCommand(
+            user_id=1,
+            text="hello",
+        )
+    )
+    after = datetime.now(timezone.utc)
+
+    assert all(
+        review.next_review_at is not None
+        and before + timedelta(minutes=2)
+        <= review.next_review_at
+        <= after + timedelta(minutes=2)
+        for review in translation.scheduled_reviews
+    )
 
 
 def test_create_app_registers_prefixed_routes_and_metadata() -> None:

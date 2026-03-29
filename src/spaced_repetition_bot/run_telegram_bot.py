@@ -8,7 +8,10 @@ from contextlib import suppress
 from aiogram import Bot, Dispatcher
 
 from spaced_repetition_bot.bootstrap import build_container
-from spaced_repetition_bot.presentation.telegram import build_telegram_router
+from spaced_repetition_bot.presentation.telegram import (
+    build_telegram_router,
+    configure_telegram_bot_ui,
+)
 
 
 async def run() -> None:
@@ -16,6 +19,7 @@ async def run() -> None:
 
     container = build_container()
     bot = Bot(token=container.config.telegram_bot_token)
+    await configure_telegram_bot_ui(bot)
     dispatcher = Dispatcher()
     dispatcher.include_router(build_telegram_router(container))
     reminder_task = asyncio.create_task(container.reminder_service.run(bot))

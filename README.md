@@ -6,13 +6,11 @@ translation, spaced repetition, reminders, and progress tracking in one flow.
 This repository currently focuses on the core MVP functionality:
 
 - persistent SQLite storage
-- Telegram translation flow
-- bidirectional quizzes
+- Telegram translation cards with action buttons
+- bidirectional quiz sessions
 - scheduled reminder delivery
 - user settings and learning controls
-
-Testing and extended quality automation are intentionally deferred from this
-stage.
+- automated tests and quality checks
 
 ## Repository Layout
 
@@ -91,6 +89,8 @@ SRB_DEBUG=false
 SRB_DATABASE_URL=sqlite:///./spaced_repetition_bot.db
 SRB_TELEGRAM_BOT_TOKEN=change-me
 SRB_REMINDER_POLL_INTERVAL_SECONDS=60
+SRB_REVIEW_INTERVALS=2,3,5,7
+SRB_REVIEW_INTERVAL_UNIT=days
 SRB_TRANSLATION_PROVIDER=mock
 SRB_YANDEX_TRANSLATE_API_KEY=
 SRB_YANDEX_FOLDER_ID=
@@ -102,6 +102,9 @@ Notes:
 
 - `sqlite:///./spaced_repetition_bot.db` is the default persistent local database
 - `SRB_TELEGRAM_BOT_TOKEN` must be replaced before starting the Telegram bot
+- `SRB_REVIEW_INTERVALS` defaults to `2,3,5,7`
+- `SRB_REVIEW_INTERVAL_UNIT` defaults to `days` and can be switched to
+  `minutes` for fast local reminder testing
 - `SRB_TRANSLATION_PROVIDER=mock` keeps the deterministic local translator
 - switch `SRB_TRANSLATION_PROVIDER` to `yandex` only after setting
   `SRB_YANDEX_TRANSLATE_API_KEY` and `SRB_YANDEX_FOLDER_ID`
@@ -155,6 +158,7 @@ Update `.env`:
 SRB_TRANSLATION_PROVIDER=yandex
 SRB_YANDEX_TRANSLATE_API_KEY=<your-api-key>
 SRB_YANDEX_FOLDER_ID=<your-folder-id>
+SRB_YANDEX_TRANSLATE_URL=https://translate.api.cloud.yandex.net/translate/v2/translate
 SRB_TRANSLATION_TIMEOUT_SECONDS=10
 ```
 
@@ -180,6 +184,28 @@ as separate processes if you want both interfaces available at the same time.
 Persistent bot state is keyed by Telegram user id, so saved cards, settings,
 and quiz progress are shared across user devices.
 
+In Telegram, the default happy path is chat-first:
+
+- plain text creates a translation card
+- suspicious translations stay unsaved until the user confirms `Keep anyway`
+- inline buttons open settings, pause or restore cards, and launch quizzes
+- `/quiz` opens a short review session with `Start quiz`, `Skip card`, and
+  `End session`
+- reminder messages include a direct `Start quiz` button
+
+### 8.1 Fast Reminder Testing
+
+For local reminder tests, switch the review schedule from days to minutes:
+
+```env
+SRB_REVIEW_INTERVALS=2,3,5,7
+SRB_REVIEW_INTERVAL_UNIT=minutes
+SRB_REMINDER_POLL_INTERVAL_SECONDS=5
+```
+
+This keeps the default production behavior unchanged while letting you verify
+the reminder flow without waiting for multiple days.
+
 ## Telegram Commands
 
 - `/start`
@@ -193,8 +219,9 @@ and quiz progress are shared across user devices.
 - `/notifications <on|off>`
 - `/quiz`
 - `/skip`
-- `/notlearning <card_id>`
-- `/restore <card_id>`
+- `/notlearning <card_id|short_id>`
+- `/restore <card_id|short_id>`
+- `/cancel`
 
 Plain text behavior:
 
@@ -213,6 +240,9 @@ Plain text behavior:
 - an incorrect answer resets the track to the beginning
 - skipping a quiz leaves the card due
 - cards marked as `not_learning` stay in history and can be restored
+- exact duplicate cards are reused instead of being created again
+- quiz sessions spread the same card directions apart when possible
+- `/history` shows short card ids for quick pause and restore commands
 
 ## HTTP API
 
@@ -236,12 +266,14 @@ Implemented endpoints:
 - multiple active language pairs per user
 - advanced analytics
 - dedicated migration tooling
-- full test and quality automation phase
 
-## Syntax Check
+## Quality Checks
 
 ```bash
 python3 -m compileall src tests
+.venv/bin/python -m flake8 src tests
+.venv/bin/python scripts/check_complexity.py src/ --max 9
+.venv/bin/python -m pytest -q
 ```
 
 ## Troubleshooting
@@ -278,7 +310,7 @@ Check the following:
 
 - `SRB_YANDEX_TRANSLATE_API_KEY` is set
 - `SRB_YANDEX_FOLDER_ID` is set
-- the Yandex Cloud Translate API is enabled for the configured folder
+- `SRB_YANDEX_TRANSLATE_URL` points to the expected Yandex endpoint
 
 ### `uvicorn` is not found
 

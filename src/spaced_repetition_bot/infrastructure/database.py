@@ -14,6 +14,8 @@ from sqlalchemy import (
     Time,
     create_engine,
     event,
+    inspect,
+    text,
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import (
@@ -121,6 +123,30 @@ class TelegramQuizSessionRecord(Base):
     )
     direction: Mapped[str] = mapped_column(String(16))
     started_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True))
+    pending_reviews_json: Mapped[str] = mapped_column(
+        Text, default="[]", server_default="[]"
+    )
+    total_prompts: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1"
+    )
+    due_reviews_total: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1"
+    )
+    answered_prompts: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    correct_prompts: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    incorrect_prompts: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    awaiting_start: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="1"
+    )
+    message_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
 
 
 def build_engine(database_url: str) -> Engine:
@@ -157,6 +183,7 @@ def initialize_database(engine: Engine) -> None:
     """Create all tables for the MVP schema."""
 
     Base.metadata.create_all(engine)
+    _upgrade_database_schema(engine)
 
 
 def _configure_sqlite_engine(engine: Engine, *, enable_wal: bool) -> None:
@@ -173,3 +200,35 @@ def _configure_sqlite_engine(engine: Engine, *, enable_wal: bool) -> None:
         if enable_wal:
             cursor.execute("PRAGMA journal_mode=WAL")
         cursor.close()
+
+
+def _upgrade_database_schema(engine: Engine) -> None:
+    """Apply lightweight schema upgrades for existing local databases."""
+
+    inspector = inspect(engine)
+    if "telegram_quiz_sessions" not in inspector.get_table_names():
+        return
+    columns = {
+        column["name"]
+        for column in inspector.get_columns("telegram_quiz_sessions")
+    }
+    upgrades = {
+        "pending_reviews_json": "TEXT NOT NULL DEFAULT '[]'",
+        "total_prompts": "INTEGER NOT NULL DEFAULT 1",
+        "due_reviews_total": "INTEGER NOT NULL DEFAULT 1",
+        "answered_prompts": "INTEGER NOT NULL DEFAULT 0",
+        "correct_prompts": "INTEGER NOT NULL DEFAULT 0",
+        "incorrect_prompts": "INTEGER NOT NULL DEFAULT 0",
+        "awaiting_start": "BOOLEAN NOT NULL DEFAULT 1",
+        "message_id": "INTEGER",
+    }
+    with engine.begin() as connection:
+        for column_name, ddl in upgrades.items():
+            if column_name in columns:
+                continue
+            connection.execute(
+                text(
+                    "ALTER TABLE telegram_quiz_sessions "
+                    f"ADD COLUMN {column_name} {ddl}"
+                )
+            )

@@ -104,12 +104,82 @@ def build_test_context(now: datetime) -> dict[str, object]:
         ),
         "start_quiz": start_quiz_session,
         "skip_quiz": SkipQuizSessionUseCase(
+            phrase_repository=phrase_repository,
             quiz_session_repository=quiz_session_repository,
+            clock=clock,
         ),
         "submit_active_quiz": SubmitActiveQuizAnswerUseCase(
             quiz_session_repository=quiz_session_repository,
+            phrase_repository=phrase_repository,
             submit_review_answer_use_case=submit_review_answer,
-            start_quiz_session_use_case=start_quiz_session,
+            clock=clock,
+        ),
+    }
+
+
+def build_test_context_with_scheduler(
+    now: datetime,
+    scheduler: FixedIntervalSpacedRepetitionPolicy,
+) -> dict[str, object]:
+    """Build wired test dependencies with a custom review scheduler."""
+
+    phrase_repository = InMemoryPhraseRepository()
+    settings_repository = InMemorySettingsRepository()
+    quiz_session_repository = InMemoryQuizSessionRepository()
+    translator = MockTranslationProvider(
+        glossary={
+            ("good luck", "en", "es"): "buena suerte",
+            ("buena suerte", "es", "en"): "good luck",
+        }
+    )
+    clock = FixedClock(current=now)
+    submit_review_answer = SubmitReviewAnswerUseCase(
+        phrase_repository=phrase_repository,
+        spaced_repetition_policy=scheduler,
+        answer_evaluation_policy=NormalizedTextAnswerPolicy(),
+        clock=clock,
+    )
+    start_quiz_session = StartQuizSessionUseCase(
+        phrase_repository=phrase_repository,
+        quiz_session_repository=quiz_session_repository,
+        clock=clock,
+    )
+
+    return {
+        "clock": clock,
+        "phrase_repository": phrase_repository,
+        "settings_repository": settings_repository,
+        "translate": TranslatePhraseUseCase(
+            phrase_repository=phrase_repository,
+            settings_repository=settings_repository,
+            translation_provider=translator,
+            spaced_repetition_policy=scheduler,
+            clock=clock,
+        ),
+        "update_settings": UpdateSettingsUseCase(
+            settings_repository=settings_repository,
+        ),
+        "answer": submit_review_answer,
+        "due": GetDueReviewsUseCase(
+            phrase_repository=phrase_repository,
+            clock=clock,
+        ),
+        "toggle": ToggleLearningUseCase(phrase_repository=phrase_repository),
+        "progress": GetUserProgressUseCase(
+            phrase_repository=phrase_repository,
+            clock=clock,
+        ),
+        "start_quiz": start_quiz_session,
+        "skip_quiz": SkipQuizSessionUseCase(
+            phrase_repository=phrase_repository,
+            quiz_session_repository=quiz_session_repository,
+            clock=clock,
+        ),
+        "submit_active_quiz": SubmitActiveQuizAnswerUseCase(
+            quiz_session_repository=quiz_session_repository,
+            phrase_repository=phrase_repository,
+            submit_review_answer_use_case=submit_review_answer,
+            clock=clock,
         ),
     }
 
@@ -131,6 +201,29 @@ def test_translate_phrase_creates_two_review_tracks() -> None:
     assert len(result.scheduled_reviews) == 2
     assert all(
         item.next_review_at == now + timedelta(days=2)
+        for item in result.scheduled_reviews
+    )
+
+
+def test_translate_phrase_supports_minute_based_review_schedule() -> None:
+    now = datetime(2026, 3, 28, 12, 0, tzinfo=timezone.utc)
+    context = build_test_context_with_scheduler(
+        now,
+        FixedIntervalSpacedRepetitionPolicy(
+            intervals=(2, 3, 5, 7),
+            interval_unit="minutes",
+        ),
+    )
+
+    result = context["translate"].execute(
+        TranslatePhraseCommand(
+            user_id=1,
+            text="good luck",
+        )
+    )
+
+    assert all(
+        item.next_review_at == now + timedelta(minutes=2)
         for item in result.scheduled_reviews
     )
 
@@ -161,6 +254,50 @@ def test_translate_uses_reverse_direction_from_settings() -> None:
     assert result.source_lang == "es"
     assert result.target_lang == "en"
     assert result.translated_text == "good luck"
+
+
+def test_translate_with_warning_does_not_save_without_confirmation() -> None:
+    now = datetime(2026, 3, 28, 12, 0, tzinfo=timezone.utc)
+    context = build_test_context(now)
+    context["translate"].translation_provider.glossary[
+        ("smekh", "en", "es")
+    ] = "smekh"
+
+    result = context["translate"].execute(
+        TranslatePhraseCommand(
+            user_id=1,
+            text="smekh",
+            save_with_warning=False,
+        )
+    )
+
+    assert result.card_id is None
+    assert result.learning_status is None
+    assert result.has_pair_warning is True
+    assert result.saved is False
+    assert context["phrase_repository"].list_by_user(1) == []
+
+
+def test_translate_reuses_existing_card() -> None:
+    now = datetime(2026, 3, 28, 12, 0, tzinfo=timezone.utc)
+    context = build_test_context(now)
+
+    first = context["translate"].execute(
+        TranslatePhraseCommand(
+            user_id=1,
+            text="good luck",
+        )
+    )
+    second = context["translate"].execute(
+        TranslatePhraseCommand(
+            user_id=1,
+            text="good luck",
+        )
+    )
+
+    assert second.card_id == first.card_id
+    assert second.already_saved is True
+    assert len(context["phrase_repository"].list_by_user(1)) == 1
 
 
 def test_correct_answer_advances_next_interval() -> None:
@@ -269,17 +406,44 @@ def test_quiz_session_resumes_and_moves_to_next_due_prompt() -> None:
     )
     context["clock"].current = now + timedelta(days=2)
 
-    first_prompt = context["start_quiz"].execute(user_id=1)
+    first_prompt = context["start_quiz"].execute(user_id=1, activate=True)
     quiz_result = context["submit_active_quiz"].execute(
         user_id=1,
         answer_text="buena suerte",
     )
 
     assert first_prompt is not None
-    assert first_prompt.card_id == translate_result.card_id
+    assert first_prompt.prompt.card_id == translate_result.card_id
     assert quiz_result.review_result.outcome is ReviewOutcome.CORRECT
     assert quiz_result.next_prompt is not None
     assert quiz_result.next_prompt.direction is ReviewDirection.REVERSE
+
+
+def test_quiz_session_mixes_cards_before_reverse_direction() -> None:
+    now = datetime(2026, 3, 28, 12, 0, tzinfo=timezone.utc)
+    context = build_test_context(now)
+    first = context["translate"].execute(
+        TranslatePhraseCommand(user_id=1, text="good luck")
+    )
+    second = context["translate"].translation_provider.glossary
+    second[("good day", "en", "es")] = "buen dia"
+    second[("buen dia", "es", "en")] = "good day"
+    next_card = context["translate"].execute(
+        TranslatePhraseCommand(user_id=1, text="good day")
+    )
+    context["clock"].current = now + timedelta(days=2)
+
+    start_result = context["start_quiz"].execute(user_id=1, activate=True)
+    quiz_result = context["submit_active_quiz"].execute(
+        user_id=1,
+        answer_text="buena suerte",
+    )
+
+    assert start_result is not None
+    assert start_result.prompt.card_id == first.card_id
+    assert quiz_result.next_prompt is not None
+    assert quiz_result.next_prompt.card_id == next_card.card_id
+    assert quiz_result.next_prompt.direction is ReviewDirection.FORWARD
 
 
 def test_skip_quiz_session_keeps_reviews_due() -> None:
@@ -290,10 +454,11 @@ def test_skip_quiz_session_keeps_reviews_due() -> None:
     )
     context["clock"].current = now + timedelta(days=2)
 
-    prompt = context["start_quiz"].execute(user_id=1)
+    prompt = context["start_quiz"].execute(user_id=1, activate=True)
     skipped = context["skip_quiz"].execute(user_id=1)
     due_reviews = context["due"].execute(user_id=1)
 
     assert prompt is not None
-    assert skipped is True
+    assert skipped is not None
+    assert skipped.next_prompt is not None
     assert len(due_reviews) == 2

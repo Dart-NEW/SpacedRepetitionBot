@@ -19,10 +19,17 @@ from tests.support import build_test_context
 class FakeBot:
     """Minimal async bot stub for reminder delivery."""
 
-    sent_messages: list[tuple[int, str]] = field(default_factory=list)
+    sent_messages: list[tuple[int, str, object | None]] = field(
+        default_factory=list
+    )
 
-    async def send_message(self, user_id: int, text: str) -> None:
-        self.sent_messages.append((user_id, text))
+    async def send_message(
+        self,
+        user_id: int,
+        text: str,
+        reply_markup: object | None = None,
+    ) -> None:
+        self.sent_messages.append((user_id, text, reply_markup))
 
 
 def test_send_due_reminders_sends_message_and_marks_notification_day() -> None:
@@ -42,13 +49,14 @@ def test_send_due_reminders_sends_message_and_marks_notification_day() -> None:
 
     asyncio.run(service.send_due_reminders(bot))
 
-    assert bot.sent_messages == [
-        (
-            1,
-            "You have 2 due review(s). "
-            "Use /quiz to continue your spaced repetition session.",
-        )
-    ]
+    assert len(bot.sent_messages) == 1
+    user_id, text, reply_markup = bot.sent_messages[0]
+    assert user_id == 1
+    assert text == (
+        "You have 2 due review(s).\n"
+        "Start a short review round when you are ready."
+    )
+    assert reply_markup is not None
     settings = context["settings_repository"].get(1)
     assert settings is not None
     assert settings.last_notification_local_date == date(2026, 3, 30)

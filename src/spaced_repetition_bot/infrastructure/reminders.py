@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from aiogram import Bot
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from spaced_repetition_bot.application.use_cases import GetDueReviewsUseCase
 from spaced_repetition_bot.application.ports import Clock, SettingsRepository
@@ -56,8 +57,18 @@ class TelegramReminderService:
                 await bot.send_message(
                     settings.user_id,
                     (
-                        f"You have {len(due_reviews)} due review(s). "
-                        "Use /quiz to continue your spaced repetition session."
+                        f"You have {len(due_reviews)} due review(s).\n"
+                        "Start a short review round when you are ready."
+                    ),
+                    reply_markup=InlineKeyboardMarkup(
+                        inline_keyboard=[
+                            [
+                                InlineKeyboardButton(
+                                    text="Start quiz",
+                                    callback_data="quiz:continue",
+                                )
+                            ]
+                        ]
                     ),
                 )
             except Exception:

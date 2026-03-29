@@ -136,6 +136,25 @@ def test_fixed_interval_policy_marks_track_completed_on_last_step() -> None:
     assert updated.completed_at == now
 
 
+def test_fixed_interval_policy_supports_minute_based_schedule() -> None:
+    now = datetime(2026, 3, 28, 12, 0, tzinfo=timezone.utc)
+    policy = FixedIntervalSpacedRepetitionPolicy(
+        intervals=(2, 3, 5, 7),
+        interval_unit="minutes",
+    )
+
+    forward_track, _ = policy.initialize_tracks(now)
+    updated = policy.apply_outcome(
+        track=forward_track,
+        now=now + timedelta(minutes=2),
+        outcome=ReviewOutcome.CORRECT,
+    )
+
+    assert forward_track.next_review_at == now + timedelta(minutes=2)
+    assert updated.step_index == 1
+    assert updated.next_review_at == now + timedelta(minutes=5)
+
+
 def test_answer_policy_normalizes_case_and_whitespace() -> None:
     policy = NormalizedTextAnswerPolicy()
 
