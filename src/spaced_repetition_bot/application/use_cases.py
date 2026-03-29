@@ -232,11 +232,7 @@ class TranslatePhraseUseCase:
     clock: Clock
 
     def execute(self, command: TranslatePhraseCommand) -> TranslationResult:
-        settings = self.settings_repository.get(command.user_id)
-        if settings is None:
-            settings = self.settings_repository.save(
-                default_settings(command.user_id)
-            )
+        settings = self._get_or_create_settings(command.user_id)
         direction = command.direction or settings.default_translation_direction
         source_lang, target_lang = settings.translation_pair_for(direction)
         translated = self.translation_provider.translate(
@@ -244,18 +240,13 @@ class TranslatePhraseUseCase:
             source_lang=source_lang,
             target_lang=target_lang,
         )
-        detected_source_lang = normalize_language_code(
-            translated.detected_source_lang
+        warning_state = self._build_warning_state(
+            source_text=command.text,
+            translated_text=translated.translated_text,
+            detected_source_lang=translated.detected_source_lang,
+            expected_source_lang=source_lang,
         )
-        is_identity_translation = (
-            normalize_text(command.text)
-            == normalize_text(translated.translated_text)
-        )
-        has_pair_warning = is_identity_translation or (
-            detected_source_lang is not None
-            and detected_source_lang != normalize_language_code(source_lang)
-        )
-        if has_pair_warning and not command.save_with_warning:
+        if warning_state.has_pair_warning and not command.save_with_warning:
             return self._build_preview_result(
                 command=command,
                 translated_text=translated.translated_text,
@@ -263,9 +254,9 @@ class TranslatePhraseUseCase:
                 source_lang=source_lang,
                 target_lang=target_lang,
                 provider_name=translated.provider_name,
-                detected_source_lang=detected_source_lang,
-                is_identity_translation=is_identity_translation,
-                has_pair_warning=has_pair_warning,
+                detected_source_lang=warning_state.detected_source_lang,
+                is_identity_translation=warning_state.is_identity_translation,
+                has_pair_warning=warning_state.has_pair_warning,
             )
         existing_card = find_existing_translation_card(
             self.phrase_repository,
@@ -280,42 +271,95 @@ class TranslatePhraseUseCase:
                 card=existing_card,
                 direction=direction,
                 provider_name=translated.provider_name,
-                detected_source_lang=detected_source_lang,
-                is_identity_translation=is_identity_translation,
-                has_pair_warning=has_pair_warning,
+                detected_source_lang=warning_state.detected_source_lang,
+                is_identity_translation=warning_state.is_identity_translation,
+                has_pair_warning=warning_state.has_pair_warning,
                 already_saved=True,
             )
-        now = self.clock.now()
-        tracks = self.spaced_repetition_policy.initialize_tracks(now)
-        learning_status = (
-            LearningStatus.ACTIVE
-            if command.learn
-            else LearningStatus.NOT_LEARNING
+        stored_card = self.phrase_repository.add(
+            self._build_new_card(
+                command=command,
+                translated_text=translated.translated_text,
+                direction=direction,
+                source_lang=source_lang,
+                target_lang=target_lang,
+            )
         )
-        card = PhraseCard(
-            id=uuid4(),
-            user_id=command.user_id,
-            source_text=command.text,
-            target_text=translated.translated_text,
-            source_lang=source_lang,
-            target_lang=target_lang,
-            created_at=now,
-            learning_status=learning_status,
-            review_tracks=tracks,
-            archived_reason=(
-                None if command.learn else "created_without_learning"
-            ),
-        )
-        stored_card = self.phrase_repository.add(card)
         return self._build_saved_result(
             card=stored_card,
             direction=direction,
             provider_name=translated.provider_name,
-            detected_source_lang=detected_source_lang,
-            is_identity_translation=is_identity_translation,
-            has_pair_warning=has_pair_warning,
+            detected_source_lang=warning_state.detected_source_lang,
+            is_identity_translation=warning_state.is_identity_translation,
+            has_pair_warning=warning_state.has_pair_warning,
             already_saved=False,
         )
+
+    def _get_or_create_settings(self, user_id: int) -> UserSettings:
+        settings = self.settings_repository.get(user_id)
+        if settings is not None:
+            return settings
+        return self.settings_repository.save(default_settings(user_id))
+
+    def _build_warning_state(
+        self,
+        *,
+        source_text: str,
+        translated_text: str,
+        detected_source_lang: str | None,
+        expected_source_lang: str,
+    ) -> TranslationWarningState:
+        normalized_detected = normalize_language_code(detected_source_lang)
+        is_identity_translation = (
+            normalize_text(source_text) == normalize_text(translated_text)
+        )
+        has_language_mismatch = (
+            normalized_detected is not None
+            and normalized_detected
+            != normalize_language_code(expected_source_lang)
+        )
+        return TranslationWarningState(
+            detected_source_lang=normalized_detected,
+            is_identity_translation=is_identity_translation,
+            has_pair_warning=(
+                is_identity_translation or has_language_mismatch
+            ),
+        )
+
+    def _build_new_card(
+        self,
+        *,
+        command: TranslatePhraseCommand,
+        translated_text: str,
+        direction: ReviewDirection,
+        source_lang: str,
+        target_lang: str,
+    ) -> PhraseCard:
+        del direction
+        now = self.clock.now()
+        learning_status, archived_reason = self._resolve_learning_state(
+            command.learn
+        )
+        return PhraseCard(
+            id=uuid4(),
+            user_id=command.user_id,
+            source_text=command.text,
+            target_text=translated_text,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            created_at=now,
+            learning_status=learning_status,
+            review_tracks=self.spaced_repetition_policy.initialize_tracks(now),
+            archived_reason=archived_reason,
+        )
+
+    def _resolve_learning_state(
+        self,
+        should_learn: bool,
+    ) -> tuple[LearningStatus, str | None]:
+        if should_learn:
+            return LearningStatus.ACTIVE, None
+        return LearningStatus.NOT_LEARNING, "created_without_learning"
 
     def _build_preview_result(
         self,
@@ -376,6 +420,15 @@ class TranslatePhraseUseCase:
                 map_scheduled_review(track) for track in card.review_tracks
             ),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class TranslationWarningState:
+    """Derived translation warning details for the current request."""
+
+    detected_source_lang: str | None
+    is_identity_translation: bool
+    has_pair_warning: bool
 
 
 @dataclass(slots=True)
