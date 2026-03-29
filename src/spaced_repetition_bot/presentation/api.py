@@ -335,7 +335,12 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
             examples=[20],
         ),
     ) -> list[HistoryItemResponse]:
-        items = container.get_history.execute(GetHistoryQuery(user_id=user_id, limit=limit))
+        try:
+            items = container.get_history.execute(
+                GetHistoryQuery(user_id=user_id, limit=limit)
+            )
+        except ApplicationError as error:
+            raise to_http_exception(error) from error
         return [HistoryItemResponse.model_validate(item, from_attributes=True) for item in items]
 
     @router.patch(
@@ -407,7 +412,10 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
     def get_due_reviews(
         user_id: int = Query(description="Telegram user id.", examples=[123456789]),
     ) -> list[DueReviewResponse]:
-        items = container.get_due_reviews.execute(user_id=user_id)
+        try:
+            items = container.get_due_reviews.execute(user_id=user_id)
+        except ApplicationError as error:
+            raise to_http_exception(error) from error
         return [DueReviewResponse.model_validate(item, from_attributes=True) for item in items]
 
     @router.post(
@@ -490,7 +498,12 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
     def get_progress(
         user_id: int = Query(description="Telegram user id.", examples=[123456789]),
     ) -> ProgressResponse:
-        result = container.get_user_progress.execute(GetUserProgressQuery(user_id=user_id))
+        try:
+            result = container.get_user_progress.execute(
+                GetUserProgressQuery(user_id=user_id)
+            )
+        except ApplicationError as error:
+            raise to_http_exception(error) from error
         return ProgressResponse.model_validate(result, from_attributes=True)
 
     @router.get(
@@ -520,7 +533,12 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
     def get_settings(
         user_id: int = Query(description="Telegram user id.", examples=[123456789]),
     ) -> SettingsResponse:
-        result = container.get_settings.execute(GetSettingsQuery(user_id=user_id))
+        try:
+            result = container.get_settings.execute(
+                GetSettingsQuery(user_id=user_id)
+            )
+        except ApplicationError as error:
+            raise to_http_exception(error) from error
         return SettingsResponse.model_validate(result, from_attributes=True)
 
     @router.put(
