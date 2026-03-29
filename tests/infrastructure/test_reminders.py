@@ -118,10 +118,16 @@ def test_send_due_reminders_skips_disabled_invalid_timezone_and_failures(
     asyncio.run(test_container.reminder_service.send_due_reminders(bot))
 
     assert bot.sent_messages == []
-    assert test_container.settings_repository.get(3).last_notification_local_date is None
+    assert (
+        test_container.settings_repository.get(3).last_notification_local_date
+        is None
+    )
 
 
-def test_reminder_run_loops_until_cancelled(monkeypatch, test_container) -> None:
+def test_reminder_run_loops_until_cancelled(
+    monkeypatch,
+    test_container,
+) -> None:
     calls: list[str] = []
 
     async def fake_send_due_reminders(_self, _bot) -> None:

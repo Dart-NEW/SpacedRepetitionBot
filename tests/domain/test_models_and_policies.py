@@ -48,7 +48,10 @@ def test_phrase_card_prompt_expected_answer_and_track_selection(
 ) -> None:
     card = create_card(fixed_now)
 
-    assert card.track_for(ReviewDirection.FORWARD).direction is ReviewDirection.FORWARD
+    assert (
+        card.track_for(ReviewDirection.FORWARD).direction
+        is ReviewDirection.FORWARD
+    )
     assert card.prompt_for(ReviewDirection.FORWARD) == "good luck"
     assert card.prompt_for(ReviewDirection.REVERSE) == "buena suerte"
     assert card.expected_answer_for(ReviewDirection.FORWARD) == "buena suerte"
@@ -76,7 +79,9 @@ def test_replace_track_marks_card_as_learned_only_when_both_tracks_completed(
     assert updated.learning_status is LearningStatus.LEARNED
 
 
-def test_disable_and_enable_learning_restore_expected_status(fixed_now) -> None:
+def test_disable_and_enable_learning_restore_expected_status(
+    fixed_now,
+) -> None:
     active_card = create_card(fixed_now)
     learned_card = create_card(
         fixed_now,
@@ -91,8 +96,14 @@ def test_disable_and_enable_learning_restore_expected_status(fixed_now) -> None:
 
     assert disabled.learning_status is LearningStatus.NOT_LEARNING
     assert disabled.archived_reason == "user_opt_out"
-    assert disabled.enable_learning().learning_status is LearningStatus.ACTIVE
-    assert learned_card.enable_learning().learning_status is LearningStatus.LEARNED
+    assert (
+        disabled.enable_learning().learning_status
+        is LearningStatus.ACTIVE
+    )
+    assert (
+        learned_card.enable_learning().learning_status
+        is LearningStatus.LEARNED
+    )
 
 
 def test_fixed_interval_policy_initializes_both_tracks_and_advances_schedule(

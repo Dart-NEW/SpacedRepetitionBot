@@ -8,8 +8,14 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.pool import StaticPool
 
-from spaced_repetition_bot.domain.enums import LearningStatus, ReviewDirection
-from spaced_repetition_bot.domain.models import TelegramQuizSession, UserSettings
+from spaced_repetition_bot.domain.enums import (
+    LearningStatus,
+    ReviewDirection,
+)
+from spaced_repetition_bot.domain.models import (
+    TelegramQuizSession,
+    UserSettings,
+)
 from spaced_repetition_bot.infrastructure.database import (
     build_engine,
     build_session_factory,
@@ -49,7 +55,8 @@ def test_build_engine_uses_static_pool_for_memory_sqlite() -> None:
     file_engine.dispose()
 
 
-def test_initialize_database_and_session_factory_create_working_schema() -> None:
+def test_initialize_database_and_session_factory_create_working_schema(
+) -> None:
     engine = build_engine("sqlite:///:memory:")
     initialize_database(engine)
     session_factory = build_session_factory(engine)
@@ -79,7 +86,10 @@ def test_in_memory_repositories_cover_basic_crud(fixed_now) -> None:
     )
     quiz_repository.save(session)
 
-    assert phrase_repository.get(card.id).learning_status is LearningStatus.NOT_LEARNING
+    assert (
+        phrase_repository.get(card.id).learning_status
+        is LearningStatus.NOT_LEARNING
+    )
     assert settings_repository.get(1) == settings
     assert settings_repository.list_all() == [settings]
     assert quiz_repository.get(1) == session

@@ -21,7 +21,7 @@ from tests.support import FakeMessage, FakeUser, handler_callbacks
 pytestmark = pytest.mark.contract
 
 
-def test_telegram_handlers_cover_start_translation_history_progress_and_settings(
+def test_telegram_handlers_cover_start_translation_history_and_progress(
     test_container,
 ) -> None:
     callbacks = handler_callbacks(test_container)
@@ -54,7 +54,12 @@ def test_telegram_setting_commands_validate_and_update_values(
     asyncio.run(
         callbacks["handle_pair"](
             message,
-            CommandObject(prefix="/", command="pair", mention=None, args="de it"),
+            CommandObject(
+                prefix="/",
+                command="pair",
+                mention=None,
+                args="de it",
+            ),
         )
     )
     asyncio.run(
@@ -102,7 +107,10 @@ def test_telegram_setting_commands_validate_and_update_values(
         )
     )
 
-    assert all(answer.startswith("Settings updated.") for answer in message.answers)
+    assert all(
+        answer.startswith("Settings updated.")
+        for answer in message.answers
+    )
     stored = test_container.settings_repository.get(1)
     assert stored.default_source_lang == "de"
     assert stored.default_translation_direction is ReviewDirection.REVERSE
@@ -119,7 +127,12 @@ def test_telegram_commands_return_usage_errors_for_invalid_arguments(
     asyncio.run(
         callbacks["handle_pair"](
             message,
-            CommandObject(prefix="/", command="pair", mention=None, args="onlyone"),
+            CommandObject(
+                prefix="/",
+                command="pair",
+                mention=None,
+                args="onlyone",
+            ),
         )
     )
     asyncio.run(
@@ -147,7 +160,12 @@ def test_telegram_commands_return_usage_errors_for_invalid_arguments(
     asyncio.run(
         callbacks["handle_timezone"](
             message,
-            CommandObject(prefix="/", command="timezone", mention=None, args="Nope/Zone"),
+            CommandObject(
+                prefix="/",
+                command="timezone",
+                mention=None,
+                args="Nope/Zone",
+            ),
         )
     )
     asyncio.run(
@@ -267,7 +285,12 @@ def test_telegram_translation_handler_reports_provider_and_settings_errors(
     asyncio.run(
         callbacks["handle_pair"](
             settings_message,
-            CommandObject(prefix="/", command="pair", mention=None, args="en en"),
+            CommandObject(
+                prefix="/",
+                command="pair",
+                mention=None,
+                args="en en",
+            ),
         )
     )
 

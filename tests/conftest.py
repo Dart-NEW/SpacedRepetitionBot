@@ -8,7 +8,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from spaced_repetition_bot.presentation.api import build_api_router
 from tests.support.builders import (
     FixedClock,
     build_api_test_app,

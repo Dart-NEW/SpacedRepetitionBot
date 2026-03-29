@@ -85,7 +85,10 @@ def test_api_flow_covers_settings_translation_history_progress_and_reviews(
     assert translation_response.status_code == 201
     assert history_response.json()[0]["source_text"] == "good luck"
     assert progress_response.json()["total_cards"] == 1
-    assert settings_get_response.json()["default_translation_direction"] == "forward"
+    assert (
+        settings_get_response.json()["default_translation_direction"]
+        == "forward"
+    )
     assert len(due_response.json()) == 2
     assert answer_response.json()["outcome"] == "correct"
     assert toggle_response.json()["learning_status"] == "not_learning"
@@ -212,9 +215,11 @@ def test_openapi_contract_contains_descriptions_examples_and_prefixed_routes(
 
     assert "/api/test/health" in paths
     assert paths["/api/test/translations"]["post"]["description"]
-    assert paths["/api/test/translations"]["post"]["responses"]["201"]["content"][
-        "application/json"
-    ]["example"]["scheduled_reviews"]
+    assert (
+        paths["/api/test/translations"]["post"]["responses"]["201"][
+            "content"
+        ]["application/json"]["example"]["scheduled_reviews"]
+    )
 
 
 def test_http_exception_mapping_preserves_invalid_settings_message() -> None:

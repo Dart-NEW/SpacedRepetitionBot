@@ -23,7 +23,10 @@ from spaced_repetition_bot.infrastructure.translators import (
     YandexTranslationProvider,
 )
 from spaced_repetition_bot.main import create_app
-from spaced_repetition_bot.presentation import build_api_router, build_telegram_router
+from spaced_repetition_bot.presentation import (
+    build_api_router,
+    build_telegram_router,
+)
 from tests.support import build_test_container
 
 pytestmark = pytest.mark.integration
@@ -45,7 +48,8 @@ def test_system_clock_returns_timezone_aware_utc_datetime() -> None:
     assert SystemClock().now().tzinfo is not None
 
 
-def test_build_translation_provider_covers_mock_yandex_and_missing_config() -> None:
+def test_build_translation_provider_covers_mock_yandex_and_missing_config(
+) -> None:
     assert isinstance(
         build_translation_provider(AppConfig(translation_provider="mock")),
         MockTranslationProvider,
@@ -76,7 +80,8 @@ def test_build_translation_provider_covers_mock_yandex_and_missing_config() -> N
     assert isinstance(provider, YandexTranslationProvider)
 
 
-def test_build_container_wires_runtime_use_cases_against_shared_repositories() -> None:
+def test_build_container_wires_runtime_use_cases_against_shared_repositories(
+) -> None:
     container = build_container(
         AppConfig(
             app_name="Test App",
@@ -96,7 +101,9 @@ def test_build_container_wires_runtime_use_cases_against_shared_repositories() -
     container.settings_repository.session_factory.kw["bind"].dispose()
 
 
-def test_create_app_registers_prefixed_routes_and_metadata(monkeypatch) -> None:
+def test_create_app_registers_prefixed_routes_and_metadata(
+    monkeypatch,
+) -> None:
     container = build_test_container(SystemClock().now())
     monkeypatch.setattr(
         "spaced_repetition_bot.main.build_container",
@@ -111,7 +118,9 @@ def test_create_app_registers_prefixed_routes_and_metadata(monkeypatch) -> None:
     assert "/api/test/health" in route_paths
 
 
-def test_run_telegram_bot_starts_polling_and_cancels_reminders(monkeypatch) -> None:
+def test_run_telegram_bot_starts_polling_and_cancels_reminders(
+    monkeypatch,
+) -> None:
     from spaced_repetition_bot import run_telegram_bot
 
     events: dict[str, object] = {}
@@ -228,6 +237,8 @@ def test_public_exports_point_to_canonical_runtime_modules() -> None:
         "spaced_repetition_bot.presentation.api_translations",
     ],
 )
-def test_removed_split_modules_are_no_longer_importable(module_name: str) -> None:
+def test_removed_split_modules_are_no_longer_importable(
+    module_name: str,
+) -> None:
     with pytest.raises(ModuleNotFoundError):
         import_module(module_name)

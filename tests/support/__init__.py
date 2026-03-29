@@ -10,7 +10,12 @@ from tests.support.builders import (
     build_test_use_cases,
     create_card,
 )
-from tests.support.telegram import FakeBot, FakeMessage, FakeUser, handler_callbacks
+from tests.support.telegram import (
+    FakeBot,
+    FakeMessage,
+    FakeUser,
+    handler_callbacks,
+)
 
 __all__ = [
     "DEFAULT_GLOSSARY",

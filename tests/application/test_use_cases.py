@@ -100,7 +100,9 @@ def test_translate_phrase_respects_reverse_direction_and_learn_false(
             learn=False,
         )
     )
-    stored = test_use_cases["get_history"].phrase_repository.get(result.card_id)
+    stored = test_use_cases["get_history"].phrase_repository.get(
+        result.card_id
+    )
 
     assert result.direction is ReviewDirection.REVERSE
     assert result.source_lang == "es"
@@ -357,7 +359,9 @@ def test_update_and_get_settings_validate_and_preserve_notification_day(
             notifications_enabled=False,
         )
     )
-    fetched = test_use_cases["get_settings"].execute(GetSettingsQuery(user_id=1))
+    fetched = test_use_cases["get_settings"].execute(
+        GetSettingsQuery(user_id=1)
+    )
 
     assert saved.last_notification_local_date == date(2026, 3, 28)
     assert updated.default_source_lang == "en"

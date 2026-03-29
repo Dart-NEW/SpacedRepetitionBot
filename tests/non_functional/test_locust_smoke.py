@@ -52,7 +52,9 @@ def locustfile_module(monkeypatch):
     return importlib.import_module("locustfile")
 
 
-def test_locust_threshold_sets_failure_when_no_requests(locustfile_module) -> None:
+def test_locust_threshold_sets_failure_when_no_requests(
+    locustfile_module,
+) -> None:
     environment = FakeEnvironment(FakeStats(num_requests=0, p95=0.0))
 
     locustfile_module.check_p95_threshold(environment)

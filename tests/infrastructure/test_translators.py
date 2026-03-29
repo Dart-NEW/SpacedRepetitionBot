@@ -56,7 +56,9 @@ class FakeSession:
 
 
 def test_mock_translation_provider_uses_glossary_and_fallback() -> None:
-    provider = MockTranslationProvider(glossary={("hello", "en", "es"): "hola"})
+    provider = MockTranslationProvider(
+        glossary={("hello", "en", "es"): "hola"}
+    )
 
     assert provider.translate(" hello ", "EN", "ES").translated_text == "hola"
     assert provider.translate("bye", "en", "fr").translated_text == "bye (fr)"
@@ -117,12 +119,25 @@ def test_yandex_translation_provider_maps_transport_errors(
     ("payload", "message"),
     [
         (ValueError("bad json"), "Translation service returned invalid JSON."),
-        (["not", "a", "dict"], "Translation service returned an unexpected payload."),
-        ({}, "Translation service returned no translations."),
-        ({"translations": ["bad"]}, "Translation service returned an invalid translation item."),
-        ({"translations": [{"text": " "}]} , "Translation service returned an empty translation."),
         (
-            {"translations": [{"text": "hola", "detectedLanguageCode": 123}]},
+            ["not", "a", "dict"],
+            "Translation service returned an unexpected payload.",
+        ),
+        ({}, "Translation service returned no translations."),
+        (
+            {"translations": ["bad"]},
+            "Translation service returned an invalid translation item.",
+        ),
+        (
+            {"translations": [{"text": " "}]},
+            "Translation service returned an empty translation.",
+        ),
+        (
+            {
+                "translations": [
+                    {"text": "hola", "detectedLanguageCode": 123}
+                ]
+            },
             "Translation service returned an invalid source language.",
         ),
     ],

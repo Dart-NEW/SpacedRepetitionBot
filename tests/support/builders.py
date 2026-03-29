@@ -34,13 +34,17 @@ from spaced_repetition_bot.infrastructure.database import (
     build_session_factory,
     initialize_database,
 )
-from spaced_repetition_bot.infrastructure.reminders import TelegramReminderService
+from spaced_repetition_bot.infrastructure.reminders import (
+    TelegramReminderService,
+)
 from spaced_repetition_bot.infrastructure.repositories import (
     InMemoryPhraseRepository,
     InMemoryQuizSessionRepository,
     InMemorySettingsRepository,
 )
-from spaced_repetition_bot.infrastructure.translators import MockTranslationProvider
+from spaced_repetition_bot.infrastructure.translators import (
+    MockTranslationProvider,
+)
 from spaced_repetition_bot.presentation.api import build_api_router
 
 DEFAULT_GLOSSARY = {
@@ -68,7 +72,9 @@ def build_test_dependencies(now: datetime) -> dict[str, object]:
         "phrase_repository": InMemoryPhraseRepository(),
         "settings_repository": InMemorySettingsRepository(),
         "quiz_session_repository": InMemoryQuizSessionRepository(),
-        "translator": MockTranslationProvider(glossary=DEFAULT_GLOSSARY.copy()),
+        "translator": MockTranslationProvider(
+            glossary=DEFAULT_GLOSSARY.copy()
+        ),
         "clock": FixedClock(current=now),
         "scheduler": FixedIntervalSpacedRepetitionPolicy(),
         "answer_policy": NormalizedTextAnswerPolicy(),
