@@ -129,8 +129,7 @@ bash "${APP_DIR}/scripts/stop_services.sh" || true
 backup_sqlite_database
 
 git fetch "${REMOTE}" "${BRANCH}"
-git checkout "${BRANCH}"
-git pull --ff-only "${REMOTE}" "${BRANCH}"
+git checkout -B "${BRANCH}" "${REMOTE}/${BRANCH}"
 
 install_runtime
 

@@ -82,7 +82,10 @@ def build_container(config: AppConfig | None = None) -> ApplicationContainer:
         session_factory=session_factory
     )
     translator = build_translation_provider(app_config)
-    spaced_repetition_policy = FixedIntervalSpacedRepetitionPolicy()
+    spaced_repetition_policy = FixedIntervalSpacedRepetitionPolicy(
+        intervals=app_config.review_intervals,
+        interval_unit=app_config.review_interval_unit,
+    )
     answer_evaluation_policy = NormalizedTextAnswerPolicy()
     submit_review_answer = SubmitReviewAnswerUseCase(
         phrase_repository=phrase_repository,

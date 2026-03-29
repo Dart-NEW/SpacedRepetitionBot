@@ -114,6 +114,70 @@ def build_test_context(now: datetime) -> dict[str, object]:
     }
 
 
+def build_test_context_with_scheduler(
+    now: datetime,
+    scheduler: FixedIntervalSpacedRepetitionPolicy,
+) -> dict[str, object]:
+    """Build wired test dependencies with a custom review scheduler."""
+
+    phrase_repository = InMemoryPhraseRepository()
+    settings_repository = InMemorySettingsRepository()
+    quiz_session_repository = InMemoryQuizSessionRepository()
+    translator = MockTranslationProvider(
+        glossary={
+            ("good luck", "en", "es"): "buena suerte",
+            ("buena suerte", "es", "en"): "good luck",
+        }
+    )
+    clock = FixedClock(current=now)
+    submit_review_answer = SubmitReviewAnswerUseCase(
+        phrase_repository=phrase_repository,
+        spaced_repetition_policy=scheduler,
+        answer_evaluation_policy=NormalizedTextAnswerPolicy(),
+        clock=clock,
+    )
+    start_quiz_session = StartQuizSessionUseCase(
+        phrase_repository=phrase_repository,
+        quiz_session_repository=quiz_session_repository,
+        clock=clock,
+    )
+
+    return {
+        "clock": clock,
+        "phrase_repository": phrase_repository,
+        "settings_repository": settings_repository,
+        "translate": TranslatePhraseUseCase(
+            phrase_repository=phrase_repository,
+            settings_repository=settings_repository,
+            translation_provider=translator,
+            spaced_repetition_policy=scheduler,
+            clock=clock,
+        ),
+        "update_settings": UpdateSettingsUseCase(
+            settings_repository=settings_repository,
+        ),
+        "answer": submit_review_answer,
+        "due": GetDueReviewsUseCase(
+            phrase_repository=phrase_repository,
+            clock=clock,
+        ),
+        "toggle": ToggleLearningUseCase(phrase_repository=phrase_repository),
+        "progress": GetUserProgressUseCase(
+            phrase_repository=phrase_repository,
+            clock=clock,
+        ),
+        "start_quiz": start_quiz_session,
+        "skip_quiz": SkipQuizSessionUseCase(
+            quiz_session_repository=quiz_session_repository,
+        ),
+        "submit_active_quiz": SubmitActiveQuizAnswerUseCase(
+            quiz_session_repository=quiz_session_repository,
+            submit_review_answer_use_case=submit_review_answer,
+            start_quiz_session_use_case=start_quiz_session,
+        ),
+    }
+
+
 def test_translate_phrase_creates_two_review_tracks() -> None:
     now = datetime(2026, 3, 28, 12, 0, tzinfo=timezone.utc)
     context = build_test_context(now)
@@ -131,6 +195,29 @@ def test_translate_phrase_creates_two_review_tracks() -> None:
     assert len(result.scheduled_reviews) == 2
     assert all(
         item.next_review_at == now + timedelta(days=2)
+        for item in result.scheduled_reviews
+    )
+
+
+def test_translate_phrase_supports_minute_based_review_schedule() -> None:
+    now = datetime(2026, 3, 28, 12, 0, tzinfo=timezone.utc)
+    context = build_test_context_with_scheduler(
+        now,
+        FixedIntervalSpacedRepetitionPolicy(
+            intervals=(2, 3, 5, 7),
+            interval_unit="minutes",
+        ),
+    )
+
+    result = context["translate"].execute(
+        TranslatePhraseCommand(
+            user_id=1,
+            text="good luck",
+        )
+    )
+
+    assert all(
+        item.next_review_at == now + timedelta(minutes=2)
         for item in result.scheduled_reviews
     )
 

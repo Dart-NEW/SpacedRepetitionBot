@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject, CommandStart
-from aiogram.types import Message
+from aiogram.types import BotCommand, MenuButtonCommands, Message
 
 from spaced_repetition_bot.application.dtos import (
     GetHistoryQuery,
@@ -28,6 +28,44 @@ from spaced_repetition_bot.application.errors import (
 from spaced_repetition_bot.bootstrap import ApplicationContainer
 from spaced_repetition_bot.domain.enums import ReviewDirection
 
+START_TEXT = (
+    "Send a word or phrase and I will translate it using your current "
+    "language pair.\n\n"
+    "Quick start:\n"
+    "1. /pair en es\n"
+    "2. Send a phrase like good luck\n"
+    "3. Use /quiz when reviews are due\n\n"
+    "Use /help to see all commands."
+)
+
+HELP_TEXT = (
+    "Commands:\n"
+    "/quiz - review due cards\n"
+    "/settings - show your current pair and reminder settings\n"
+    "/progress - show how many cards are active, learned, and due\n"
+    "/history - show recent cards with ids for /notlearning or /restore\n"
+    "/pair <source_lang> <target_lang> - change the active pair\n"
+    "/direction <forward|reverse> - switch the default direction\n"
+    "/notifytime <HH:MM> - set the local reminder time\n"
+    "/timezone <IANA timezone> - set your timezone\n"
+    "/notifications <on|off> - enable or disable reminders\n"
+    "/skip - leave the current quiz card due\n\n"
+    "Tip: plain text translates the phrase and adds it to learning."
+)
+
+BOT_COMMANDS: tuple[BotCommand, ...] = (
+    BotCommand(command="help", description="Show quick help"),
+    BotCommand(command="quiz", description="Review due cards"),
+    BotCommand(command="settings", description="Show current settings"),
+    BotCommand(command="progress", description="Show learning progress"),
+    BotCommand(command="history", description="Show recent cards"),
+    BotCommand(command="pair", description="Set active language pair"),
+    BotCommand(command="direction", description="Set review direction"),
+    BotCommand(command="notifytime", description="Set reminder time"),
+    BotCommand(command="timezone", description="Set your timezone"),
+    BotCommand(command="notifications", description="Toggle reminders"),
+)
+
 
 def build_telegram_router(container: ApplicationContainer) -> Router:
     """Build a minimal Telegram router for the MVP."""
@@ -38,15 +76,13 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
     async def handle_start(message: Message) -> None:
         if message.from_user is None:
             return
-        await message.answer(
-            (
-                "Send me a phrase and I will translate it with "
-                "your active language pair.\n"
-                "Use /quiz for due reviews, /settings to inspect "
-                "your defaults, and /direction forward|reverse "
-                "to change the translation direction."
-            )
-        )
+        await message.answer(START_TEXT)
+
+    @router.message(Command("help"))
+    async def handle_help(message: Message) -> None:
+        if message.from_user is None:
+            return
+        await message.answer(HELP_TEXT)
 
     @router.message(Command("history"))
     async def handle_history(message: Message) -> None:
@@ -112,7 +148,10 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
             return
         args = (command.args or "").split()
         if len(args) != 2:
-            await message.answer("Usage: /pair <source_lang> <target_lang>")
+            await message.answer(
+                "Usage: /pair <source_lang> <target_lang>\n"
+                "Example: /pair en es"
+            )
             return
         await _update_settings(
             container=container,
@@ -129,7 +168,10 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
             return
         direction = _parse_direction(command.args)
         if direction is None:
-            await message.answer("Usage: /direction <forward|reverse>")
+            await message.answer(
+                "Usage: /direction <forward|reverse>\n"
+                "Example: /direction reverse"
+            )
             return
         await _update_settings(
             container=container,
@@ -145,7 +187,10 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
             return
         parsed_time = _parse_notification_time(command.args)
         if parsed_time is None:
-            await message.answer("Usage: /notifytime <HH:MM>")
+            await message.answer(
+                "Usage: /notifytime <HH:MM>\n"
+                "Example: /notifytime 09:30"
+            )
             return
         await _update_settings(
             container=container,
@@ -161,7 +206,10 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
             return
         timezone_name = (command.args or "").strip()
         if not timezone_name:
-            await message.answer("Usage: /timezone <IANA timezone>")
+            await message.answer(
+                "Usage: /timezone <IANA timezone>\n"
+                "Example: /timezone Europe/Moscow"
+            )
             return
         try:
             ZoneInfo(timezone_name)
@@ -184,7 +232,10 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
             return
         raw_value = (command.args or "").strip().casefold()
         if raw_value not in {"on", "off"}:
-            await message.answer("Usage: /notifications <on|off>")
+            await message.answer(
+                "Usage: /notifications <on|off>\n"
+                "Example: /notifications off"
+            )
             return
         await _update_settings(
             container=container,
@@ -198,7 +249,10 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
             return
         prompt = container.start_quiz_session.execute(message.from_user.id)
         if prompt is None:
-            await message.answer("You have no due reviews right now.")
+            await message.answer(
+                "You have no due reviews right now. Send a new phrase or "
+                "check /progress."
+            )
             return
         await message.answer(_format_quiz_prompt(prompt))
 
@@ -243,10 +297,20 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
                 user_id=message.from_user.id,
                 answer_text=message.text,
             )
+            outcome_label = (
+                "Correct"
+                if quiz_result.review_result.outcome.value == "correct"
+                else "Incorrect"
+            )
+            next_review = (
+                str(quiz_result.review_result.next_review_at)
+                if quiz_result.review_result.next_review_at is not None
+                else "Track completed"
+            )
             answer_message = (
-                f"Result: {quiz_result.review_result.outcome}\n"
+                f"Result: {outcome_label}\n"
                 f"Expected: {quiz_result.review_result.expected_answer}\n"
-                f"Next review: {quiz_result.review_result.next_review_at}\n"
+                f"Next review: {next_review}\n"
                 f"Learning status: {quiz_result.review_result.learning_status}"
             )
             await message.answer(answer_message)
@@ -408,8 +472,15 @@ async def _toggle_learning_from_command(
 
 def _format_quiz_prompt(prompt) -> str:
     return (
-        f"Quiz card: {prompt.card_id}\n"
+        "Quiz\n"
         f"Direction: {prompt.direction}\n"
         f"Prompt: {prompt.prompt_text}\n"
         "Reply with your answer as plain text or use /skip to leave it due."
     )
+
+
+async def configure_telegram_bot_ui(bot) -> None:
+    """Register command shortcuts and the commands menu in Telegram."""
+
+    await bot.set_my_commands(list(BOT_COMMANDS))
+    await bot.set_chat_menu_button(menu_button=MenuButtonCommands())

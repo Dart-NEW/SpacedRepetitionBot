@@ -102,10 +102,33 @@ def test_telegram_handlers_cover_start_history_progress_and_translation() -> (
     asyncio.run(callbacks["handle_start"](start_message))
     assert start_message.answers == [
         (
-            "Send me a phrase and I will translate it with "
-            "your active language pair.\nUse /quiz for due reviews, "
-            "/settings to inspect your defaults, and /direction "
-            "forward|reverse to change the translation direction."
+            "Send a word or phrase and I will translate it using your "
+            "current language pair.\n\n"
+            "Quick start:\n"
+            "1. /pair en es\n"
+            "2. Send a phrase like good luck\n"
+            "3. Use /quiz when reviews are due\n\n"
+            "Use /help to see all commands."
+        )
+    ]
+
+    help_message = FakeMessage(from_user=FakeUser(id=1))
+    asyncio.run(callbacks["handle_help"](help_message))
+    assert help_message.answers == [
+        (
+            "Commands:\n"
+            "/quiz - review due cards\n"
+            "/settings - show your current pair and reminder settings\n"
+            "/progress - show how many cards are active, learned, and due\n"
+            "/history - show recent cards with ids for /notlearning or "
+            "/restore\n"
+            "/pair <source_lang> <target_lang> - change the active pair\n"
+            "/direction <forward|reverse> - switch the default direction\n"
+            "/notifytime <HH:MM> - set the local reminder time\n"
+            "/timezone <IANA timezone> - set your timezone\n"
+            "/notifications <on|off> - enable or disable reminders\n"
+            "/skip - leave the current quiz card due\n\n"
+            "Tip: plain text translates the phrase and adds it to learning."
         )
     ]
 
@@ -168,6 +191,14 @@ def test_run_starts_polling_with_built_router(
         def __init__(self, token: str) -> None:
             events["token"] = token
 
+        async def set_my_commands(self, commands: object) -> None:
+            events["commands"] = commands
+
+        async def set_chat_menu_button(
+            self, *, menu_button: object
+        ) -> None:
+            events["menu_button"] = menu_button
+
     class FakeDispatcher:
         def include_router(self, router: object) -> None:
             events["router"] = router
@@ -190,6 +221,9 @@ def test_run_starts_polling_with_built_router(
 
     assert events["token"] == fake_container.config.telegram_bot_token
     assert events["router"] is fake_router
+    assert len(events["commands"]) == 10
+    assert events["commands"][0].command == "help"
+    assert events["menu_button"].type == "commands"
     assert isinstance(events["bot"], FakeBot)
 
 
@@ -227,6 +261,6 @@ def test_telegram_helper_parsers_and_prompt_formatter() -> None:
     )
     formatted_prompt = _format_quiz_prompt(prompt)
 
-    assert "Quiz card:" in formatted_prompt
+    assert formatted_prompt.startswith("Quiz\n")
     assert "Direction: forward" in formatted_prompt
     assert "Prompt: good luck" in formatted_prompt
