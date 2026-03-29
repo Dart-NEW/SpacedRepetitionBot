@@ -29,7 +29,9 @@ from spaced_repetition_bot.infrastructure.database import (
     build_session_factory,
     initialize_database,
 )
-from spaced_repetition_bot.infrastructure.reminders import TelegramReminderService
+from spaced_repetition_bot.infrastructure.reminders import (
+    TelegramReminderService,
+)
 from spaced_repetition_bot.infrastructure.repositories import (
     SqlAlchemyPhraseRepository,
     SqlAlchemyQuizSessionRepository,
@@ -70,7 +72,9 @@ def build_container(config: AppConfig | None = None) -> ApplicationContainer:
     engine = build_engine(app_config.database_url)
     initialize_database(engine)
     session_factory = build_session_factory(engine)
-    phrase_repository = SqlAlchemyPhraseRepository(session_factory=session_factory)
+    phrase_repository = SqlAlchemyPhraseRepository(
+        session_factory=session_factory
+    )
     settings_repository = SqlAlchemySettingsRepository(
         session_factory=session_factory
     )
@@ -102,7 +106,9 @@ def build_container(config: AppConfig | None = None) -> ApplicationContainer:
             clock=clock,
         ),
         get_history=GetHistoryUseCase(phrase_repository=phrase_repository),
-        toggle_learning=ToggleLearningUseCase(phrase_repository=phrase_repository),
+        toggle_learning=ToggleLearningUseCase(
+            phrase_repository=phrase_repository
+        ),
         get_due_reviews=GetDueReviewsUseCase(
             phrase_repository=phrase_repository,
             clock=clock,
@@ -121,8 +127,12 @@ def build_container(config: AppConfig | None = None) -> ApplicationContainer:
             phrase_repository=phrase_repository,
             clock=clock,
         ),
-        get_settings=GetSettingsUseCase(settings_repository=settings_repository),
-        update_settings=UpdateSettingsUseCase(settings_repository=settings_repository),
+        get_settings=GetSettingsUseCase(
+            settings_repository=settings_repository
+        ),
+        update_settings=UpdateSettingsUseCase(
+            settings_repository=settings_repository
+        ),
         settings_repository=settings_repository,
         clock=clock,
         reminder_service=TelegramReminderService(

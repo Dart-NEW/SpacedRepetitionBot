@@ -13,9 +13,6 @@ from spaced_repetition_bot.application.errors import (
     TranslationProviderError,
 )
 from spaced_repetition_bot.presentation.api import to_http_exception
-from spaced_repetition_bot.presentation.api_errors import (
-    to_http_exception as duplicate_to_http_exception,
-)
 
 pytestmark = pytest.mark.contract
 
@@ -220,12 +217,9 @@ def test_openapi_contract_contains_descriptions_examples_and_prefixed_routes(
     ]["example"]["scheduled_reviews"]
 
 
-def test_http_exception_mapping_matches_duplicate_api_errors_module() -> None:
+def test_http_exception_mapping_preserves_invalid_settings_message() -> None:
     error = InvalidSettingsError("bad settings")
-    primary = to_http_exception(error)
-    duplicate = duplicate_to_http_exception(error)
+    mapped = to_http_exception(error)
 
-    assert primary.status_code == 400
-    assert primary.detail == "bad settings"
-    assert duplicate.status_code == primary.status_code
-    assert duplicate.detail == primary.detail
+    assert mapped.status_code == 400
+    assert mapped.detail == "bad settings"

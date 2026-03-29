@@ -26,14 +26,20 @@ from spaced_repetition_bot.application.errors import (
     TranslationProviderError,
 )
 from spaced_repetition_bot.bootstrap import ApplicationContainer
-from spaced_repetition_bot.domain.enums import LearningStatus, ReviewDirection, ReviewOutcome
+from spaced_repetition_bot.domain.enums import (
+    LearningStatus,
+    ReviewDirection,
+    ReviewOutcome,
+)
 
 
 class HealthResponse(BaseModel):
     """Service health response."""
 
     status: str = Field(description="Current service state.", examples=["ok"])
-    version: str = Field(description="Application version.", examples=["0.1.0"])
+    version: str = Field(
+        description="Application version.", examples=["0.1.0"]
+    )
 
 
 class ScheduledReviewResponse(BaseModel):
@@ -41,28 +47,43 @@ class ScheduledReviewResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    direction: ReviewDirection = Field(description="Quiz direction.", examples=["forward"])
-    step_index: int = Field(description="Current review step index.", examples=[0])
+    direction: ReviewDirection = Field(
+        description="Quiz direction.", examples=["forward"]
+    )
+    step_index: int = Field(
+        description="Current review step index.", examples=[0]
+    )
     next_review_at: datetime | None = Field(
         description="When the next review is due.",
         examples=["2026-03-30T12:00:00Z"],
     )
-    completed: bool = Field(description="Whether the review track is completed.", examples=[False])
+    completed: bool = Field(
+        description="Whether the review track is completed.", examples=[False]
+    )
 
 
 class TranslationRequest(BaseModel):
     """Input payload for phrase translation."""
 
     user_id: int = Field(description="Telegram user id.", examples=[123456789])
-    text: str = Field(description="Phrase to translate and optionally learn.", examples=["good luck"])
+    text: str = Field(
+        description="Phrase to translate and optionally learn.",
+        examples=["good luck"],
+    )
     direction: ReviewDirection | None = Field(
         default=None,
-        description="Optional translation direction override within the active pair.",
+        description=(
+            "Optional translation direction override "
+            "within the active pair."
+        ),
         examples=["forward"],
     )
     learn: bool = Field(
         default=True,
-        description="Whether the phrase should be added to the learning queue.",
+        description=(
+            "Whether the phrase should be added "
+            "to the learning queue."
+        ),
         examples=[True],
     )
 
@@ -70,14 +91,31 @@ class TranslationRequest(BaseModel):
 class TranslationResponse(BaseModel):
     """Output payload for a translation command."""
 
-    card_id: UUID = Field(description="Card identifier.", examples=["11111111-1111-1111-1111-111111111111"])
-    source_text: str = Field(description="Original phrase.", examples=["good luck"])
-    translated_text: str = Field(description="Translated phrase.", examples=["buena suerte"])
-    direction: ReviewDirection = Field(description="Direction used for translation.", examples=["forward"])
-    source_lang: str = Field(description="Source language code.", examples=["en"])
-    target_lang: str = Field(description="Target language code.", examples=["es"])
-    learning_status: LearningStatus = Field(description="Learning status.", examples=["active"])
-    provider_name: str = Field(description="Translation provider name.", examples=["mock"])
+    card_id: UUID = Field(
+        description="Card identifier.",
+        examples=["11111111-1111-1111-1111-111111111111"],
+    )
+    source_text: str = Field(
+        description="Original phrase.", examples=["good luck"]
+    )
+    translated_text: str = Field(
+        description="Translated phrase.", examples=["buena suerte"]
+    )
+    direction: ReviewDirection = Field(
+        description="Direction used for translation.", examples=["forward"]
+    )
+    source_lang: str = Field(
+        description="Source language code.", examples=["en"]
+    )
+    target_lang: str = Field(
+        description="Target language code.", examples=["es"]
+    )
+    learning_status: LearningStatus = Field(
+        description="Learning status.", examples=["active"]
+    )
+    provider_name: str = Field(
+        description="Translation provider name.", examples=["mock"]
+    )
     scheduled_reviews: list[ScheduledReviewResponse] = Field(
         description="Review schedule for both directions."
     )
@@ -86,13 +124,28 @@ class TranslationResponse(BaseModel):
 class HistoryItemResponse(BaseModel):
     """Single history row returned by the API."""
 
-    card_id: UUID = Field(description="Card identifier.", examples=["11111111-1111-1111-1111-111111111111"])
-    source_text: str = Field(description="Original phrase.", examples=["good luck"])
-    translated_text: str = Field(description="Translated phrase.", examples=["buena suerte"])
-    source_lang: str = Field(description="Source language code.", examples=["en"])
-    target_lang: str = Field(description="Target language code.", examples=["es"])
-    created_at: datetime = Field(description="Creation timestamp.", examples=["2026-03-28T12:00:00Z"])
-    learning_status: LearningStatus = Field(description="Learning status.", examples=["active"])
+    card_id: UUID = Field(
+        description="Card identifier.",
+        examples=["11111111-1111-1111-1111-111111111111"],
+    )
+    source_text: str = Field(
+        description="Original phrase.", examples=["good luck"]
+    )
+    translated_text: str = Field(
+        description="Translated phrase.", examples=["buena suerte"]
+    )
+    source_lang: str = Field(
+        description="Source language code.", examples=["en"]
+    )
+    target_lang: str = Field(
+        description="Target language code.", examples=["es"]
+    )
+    created_at: datetime = Field(
+        description="Creation timestamp.", examples=["2026-03-28T12:00:00Z"]
+    )
+    learning_status: LearningStatus = Field(
+        description="Learning status.", examples=["active"]
+    )
 
 
 class ToggleLearningRequest(BaseModel):
@@ -108,17 +161,31 @@ class ToggleLearningRequest(BaseModel):
 class LearningStateResponse(BaseModel):
     """Minimal card state after toggling learning."""
 
-    card_id: UUID = Field(description="Card identifier.", examples=["11111111-1111-1111-1111-111111111111"])
-    learning_status: LearningStatus = Field(description="Current learning status.", examples=["not_learning"])
+    card_id: UUID = Field(
+        description="Card identifier.",
+        examples=["11111111-1111-1111-1111-111111111111"],
+    )
+    learning_status: LearningStatus = Field(
+        description="Current learning status.", examples=["not_learning"]
+    )
 
 
 class DueReviewResponse(BaseModel):
     """Due review prompt."""
 
-    card_id: UUID = Field(description="Card identifier.", examples=["11111111-1111-1111-1111-111111111111"])
-    direction: ReviewDirection = Field(description="Quiz direction.", examples=["forward"])
-    prompt_text: str = Field(description="Text shown to the learner.", examples=["good luck"])
-    due_at: datetime = Field(description="Due timestamp.", examples=["2026-03-30T12:00:00Z"])
+    card_id: UUID = Field(
+        description="Card identifier.",
+        examples=["11111111-1111-1111-1111-111111111111"],
+    )
+    direction: ReviewDirection = Field(
+        description="Quiz direction.", examples=["forward"]
+    )
+    prompt_text: str = Field(
+        description="Text shown to the learner.", examples=["good luck"]
+    )
+    due_at: datetime = Field(
+        description="Due timestamp.", examples=["2026-03-30T12:00:00Z"]
+    )
     step_index: int = Field(description="Current review step.", examples=[0])
 
 
@@ -126,49 +193,91 @@ class ReviewAnswerRequest(BaseModel):
     """Payload for a manual quiz answer."""
 
     user_id: int = Field(description="Telegram user id.", examples=[123456789])
-    direction: ReviewDirection = Field(description="Quiz direction.", examples=["forward"])
-    answer_text: str = Field(description="Manual answer entered by the user.", examples=["buena suerte"])
+    direction: ReviewDirection = Field(
+        description="Quiz direction.", examples=["forward"]
+    )
+    answer_text: str = Field(
+        description="Manual answer entered by the user.",
+        examples=["buena suerte"],
+    )
 
 
 class ReviewAnswerResponse(BaseModel):
     """Result of a quiz answer."""
 
-    card_id: UUID = Field(description="Card identifier.", examples=["11111111-1111-1111-1111-111111111111"])
-    direction: ReviewDirection = Field(description="Quiz direction.", examples=["forward"])
-    outcome: ReviewOutcome = Field(description="Review result.", examples=["correct"])
-    expected_answer: str = Field(description="Expected answer used for evaluation.", examples=["buena suerte"])
-    provided_answer: str = Field(description="User answer.", examples=["buena suerte"])
+    card_id: UUID = Field(
+        description="Card identifier.",
+        examples=["11111111-1111-1111-1111-111111111111"],
+    )
+    direction: ReviewDirection = Field(
+        description="Quiz direction.", examples=["forward"]
+    )
+    outcome: ReviewOutcome = Field(
+        description="Review result.", examples=["correct"]
+    )
+    expected_answer: str = Field(
+        description="Expected answer used for evaluation.",
+        examples=["buena suerte"],
+    )
+    provided_answer: str = Field(
+        description="User answer.", examples=["buena suerte"]
+    )
     step_index: int = Field(description="Updated step index.", examples=[1])
     next_review_at: datetime | None = Field(
         description="Next due datetime or null if learned.",
         examples=["2026-04-02T12:00:00Z"],
     )
-    learning_status: LearningStatus = Field(description="Card learning status.", examples=["active"])
+    learning_status: LearningStatus = Field(
+        description="Card learning status.", examples=["active"]
+    )
 
 
 class ProgressResponse(BaseModel):
     """Aggregated user progress."""
 
-    total_cards: int = Field(description="Total number of cards.", examples=[12])
-    active_cards: int = Field(description="Cards still in learning.", examples=[8])
-    learned_cards: int = Field(description="Cards fully learned.", examples=[2])
-    not_learning_cards: int = Field(description="Cards excluded from learning.", examples=[2])
-    due_reviews: int = Field(description="Reviews currently due.", examples=[3])
-    completed_review_tracks: int = Field(description="Completed directional tracks.", examples=[7])
-    total_review_tracks: int = Field(description="Total directional tracks.", examples=[24])
+    total_cards: int = Field(
+        description="Total number of cards.", examples=[12]
+    )
+    active_cards: int = Field(
+        description="Cards still in learning.", examples=[8]
+    )
+    learned_cards: int = Field(
+        description="Cards fully learned.", examples=[2]
+    )
+    not_learning_cards: int = Field(
+        description="Cards excluded from learning.", examples=[2]
+    )
+    due_reviews: int = Field(
+        description="Reviews currently due.", examples=[3]
+    )
+    completed_review_tracks: int = Field(
+        description="Completed directional tracks.", examples=[7]
+    )
+    total_review_tracks: int = Field(
+        description="Total directional tracks.", examples=[24]
+    )
 
 
 class SettingsResponse(BaseModel):
     """User settings payload."""
 
     user_id: int = Field(description="Telegram user id.", examples=[123456789])
-    default_source_lang: str = Field(description="Default source language.", examples=["en"])
-    default_target_lang: str = Field(description="Default target language.", examples=["es"])
+    default_source_lang: str = Field(
+        description="Default source language.", examples=["en"]
+    )
+    default_target_lang: str = Field(
+        description="Default target language.", examples=["es"]
+    )
     default_translation_direction: ReviewDirection = Field(
-        description="Default translation direction for Telegram and API requests.",
+        description=(
+            "Default translation direction "
+            "for Telegram and API requests."
+        ),
         examples=["forward"],
     )
-    timezone: str = Field(description="IANA timezone name.", examples=["Europe/Moscow"])
+    timezone: str = Field(
+        description="IANA timezone name.", examples=["Europe/Moscow"]
+    )
     notification_time_local: time = Field(
         description="Preferred local notification time.",
         examples=["09:00:00"],
@@ -183,13 +292,24 @@ class UpdateSettingsRequest(BaseModel):
     """Payload for updating settings."""
 
     user_id: int = Field(description="Telegram user id.", examples=[123456789])
-    default_source_lang: str = Field(description="Default source language code.", examples=["en"])
-    default_target_lang: str = Field(description="Default target language code.", examples=["es"])
-    default_translation_direction: ReviewDirection = Field(
-        description="Default translation direction for new translation requests.",
+    default_source_lang: str = Field(
+        description="Default source language code.", examples=["en"]
+    )
+    default_target_lang: str = Field(
+        description="Default target language code.", examples=["es"]
+    )
+    default_translation_direction: ReviewDirection | None = Field(
+        default=None,
+        description=(
+            "Default translation direction "
+            "for new translation requests. "
+            "When omitted, the current setting is preserved."
+        ),
         examples=["forward"],
     )
-    timezone: str = Field(description="IANA timezone name.", examples=["Europe/Moscow"])
+    timezone: str = Field(
+        description="IANA timezone name.", examples=["Europe/Moscow"]
+    )
     notification_time_local: time = Field(
         description="Preferred local notification time.",
         examples=["09:00:00"],
@@ -213,12 +333,18 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
         responses={
             200: {
                 "description": "Service is healthy.",
-                "content": {"application/json": {"example": {"status": "ok", "version": "0.1.0"}}},
+                "content": {
+                    "application/json": {
+                        "example": {"status": "ok", "version": "0.1.0"}
+                    }
+                },
             }
         },
     )
     def health_check() -> HealthResponse:
-        return HealthResponse(status="ok", version=container.config.app_version)
+        return HealthResponse(
+            status="ok", version=container.config.app_version
+        )
 
     @router.post(
         "/translations",
@@ -294,7 +420,9 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
             learning_status=result.learning_status,
             provider_name=result.provider_name,
             scheduled_reviews=[
-                ScheduledReviewResponse.model_validate(item, from_attributes=True)
+                ScheduledReviewResponse.model_validate(
+                    item, from_attributes=True
+                )
                 for item in result.scheduled_reviews
             ],
         )
@@ -311,7 +439,9 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
                     "application/json": {
                         "example": [
                             {
-                                "card_id": "11111111-1111-1111-1111-111111111111",
+                                "card_id": (
+                                    "11111111-1111-1111-1111-111111111111"
+                                ),
                                 "source_text": "good luck",
                                 "translated_text": "good luck (es)",
                                 "source_lang": "en",
@@ -326,7 +456,9 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
         },
     )
     def get_history(
-        user_id: int = Query(description="Telegram user id.", examples=[123456789]),
+        user_id: int = Query(
+            description="Telegram user id.", examples=[123456789]
+        ),
         limit: int = Query(
             default=20,
             ge=1,
@@ -341,7 +473,10 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
             )
         except ApplicationError as error:
             raise to_http_exception(error) from error
-        return [HistoryItemResponse.model_validate(item, from_attributes=True) for item in items]
+        return [
+            HistoryItemResponse.model_validate(item, from_attributes=True)
+            for item in items
+        ]
 
     @router.patch(
         "/cards/{card_id}/learning",
@@ -362,7 +497,11 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
             },
             404: {
                 "description": "Card not found.",
-                "content": {"application/json": {"example": {"detail": "Card not found."}}},
+                "content": {
+                    "application/json": {
+                        "example": {"detail": "Card not found."}
+                    }
+                },
             },
         },
     )
@@ -383,7 +522,9 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
             )
         except ApplicationError as error:
             raise to_http_exception(error) from error
-        return LearningStateResponse(card_id=card.id, learning_status=card.learning_status)
+        return LearningStateResponse(
+            card_id=card.id, learning_status=card.learning_status
+        )
 
     @router.get(
         "/reviews/due",
@@ -397,7 +538,9 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
                     "application/json": {
                         "example": [
                             {
-                                "card_id": "11111111-1111-1111-1111-111111111111",
+                                "card_id": (
+                                    "11111111-1111-1111-1111-111111111111"
+                                ),
                                 "direction": "forward",
                                 "prompt_text": "good luck",
                                 "due_at": "2026-03-30T12:00:00Z",
@@ -410,13 +553,18 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
         },
     )
     def get_due_reviews(
-        user_id: int = Query(description="Telegram user id.", examples=[123456789]),
+        user_id: int = Query(
+            description="Telegram user id.", examples=[123456789]
+        ),
     ) -> list[DueReviewResponse]:
         try:
             items = container.get_due_reviews.execute(user_id=user_id)
         except ApplicationError as error:
             raise to_http_exception(error) from error
-        return [DueReviewResponse.model_validate(item, from_attributes=True) for item in items]
+        return [
+            DueReviewResponse.model_validate(item, from_attributes=True)
+            for item in items
+        ]
 
     @router.post(
         "/reviews/{card_id}/answer",
@@ -443,11 +591,19 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
             },
             400: {
                 "description": "Review is not available.",
-                "content": {"application/json": {"example": {"detail": "Review is not due."}}},
+                "content": {
+                    "application/json": {
+                        "example": {"detail": "Review is not due."}
+                    }
+                },
             },
             404: {
                 "description": "Card not found.",
-                "content": {"application/json": {"example": {"detail": "Card not found."}}},
+                "content": {
+                    "application/json": {
+                        "example": {"detail": "Card not found."}
+                    }
+                },
             },
         },
     )
@@ -455,7 +611,13 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
         card_id: UUID = Path(description="Card identifier."),
         payload: ReviewAnswerRequest = Body(
             description="Review answer payload.",
-            examples=[{"user_id": 123456789, "direction": "forward", "answer_text": "buena suerte"}],
+            examples=[
+                {
+                    "user_id": 123456789,
+                    "direction": "forward",
+                    "answer_text": "buena suerte",
+                }
+            ],
         ),
     ) -> ReviewAnswerResponse:
         try:
@@ -469,7 +631,9 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
             )
         except ApplicationError as error:
             raise to_http_exception(error) from error
-        return ReviewAnswerResponse.model_validate(result, from_attributes=True)
+        return ReviewAnswerResponse.model_validate(
+            result, from_attributes=True
+        )
 
     @router.get(
         "/progress",
@@ -496,7 +660,9 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
         },
     )
     def get_progress(
-        user_id: int = Query(description="Telegram user id.", examples=[123456789]),
+        user_id: int = Query(
+            description="Telegram user id.", examples=[123456789]
+        ),
     ) -> ProgressResponse:
         try:
             result = container.get_user_progress.execute(
@@ -531,7 +697,9 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
         },
     )
     def get_settings(
-        user_id: int = Query(description="Telegram user id.", examples=[123456789]),
+        user_id: int = Query(
+            description="Telegram user id.", examples=[123456789]
+        ),
     ) -> SettingsResponse:
         try:
             result = container.get_settings.execute(
@@ -545,7 +713,10 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
         "/settings",
         response_model=SettingsResponse,
         summary="Update user settings",
-        description="Persist settings that influence translation defaults and notifications.",
+        description=(
+            "Persist settings that influence translation defaults "
+            "and notifications."
+        ),
         responses={
             200: {
                 "description": "Settings updated.",
@@ -582,12 +753,18 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
         )
     ) -> SettingsResponse:
         try:
+            direction = payload.default_translation_direction
+            if direction is None:
+                current = container.get_settings.execute(
+                    GetSettingsQuery(user_id=payload.user_id)
+                )
+                direction = current.default_translation_direction
             result = container.update_settings.execute(
                 UpdateSettingsCommand(
                     user_id=payload.user_id,
                     default_source_lang=payload.default_source_lang,
                     default_target_lang=payload.default_target_lang,
-                    default_translation_direction=payload.default_translation_direction,
+                    default_translation_direction=direction,
                     timezone=payload.timezone,
                     notification_time_local=payload.notification_time_local,
                     notifications_enabled=payload.notifications_enabled,

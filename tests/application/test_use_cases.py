@@ -23,7 +23,7 @@ from spaced_repetition_bot.application.errors import (
     QuizSessionNotFoundError,
     ReviewNotAvailableError,
 )
-from spaced_repetition_bot.application.use_case_common import (
+from spaced_repetition_bot.application.use_cases import (
     default_settings,
     load_user_card,
     map_scheduled_review,

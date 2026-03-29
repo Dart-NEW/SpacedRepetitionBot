@@ -40,9 +40,11 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
             return
         await message.answer(
             (
-                "Send me a phrase and I will translate it with your active language pair.\n"
-                "Use /quiz for due reviews, /settings to inspect your defaults, "
-                "and /direction forward|reverse to change the translation direction."
+                "Send me a phrase and I will translate it with "
+                "your active language pair.\n"
+                "Use /quiz for due reviews, /settings to inspect "
+                "your defaults, and /direction forward|reverse "
+                "to change the translation direction."
             )
         )
 
@@ -50,14 +52,17 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
     async def handle_history(message: Message) -> None:
         if message.from_user is None:
             return
-        history = container.get_history.execute(GetHistoryQuery(user_id=message.from_user.id))
+        history = container.get_history.execute(
+            GetHistoryQuery(user_id=message.from_user.id)
+        )
         if not history:
             await message.answer("History is empty.")
             return
         lines = [
             (
-                f"{item.card_id} | {item.source_text} -> {item.translated_text} "
-                f"| {item.learning_status}"
+                f"{item.card_id}\n"
+                f"{item.source_text} -> {item.translated_text}\n"
+                f"Status: {item.learning_status}"
             )
             for item in history[:10]
         ]
@@ -71,7 +76,10 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
             GetUserProgressQuery(user_id=message.from_user.id)
         )
         await message.answer(
-            "Cards: {total}, active: {active}, learned: {learned}, due: {due}".format(
+            (
+                "Cards: {total}, active: {active}, "
+                "learned: {learned}, due: {due}"
+            ).format(
                 total=progress.total_cards,
                 active=progress.active_cards,
                 learned=progress.learned_cards,
@@ -83,10 +91,14 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
     async def handle_settings(message: Message) -> None:
         if message.from_user is None:
             return
-        settings = container.get_settings.execute(GetSettingsQuery(user_id=message.from_user.id))
+        settings = container.get_settings.execute(
+            GetSettingsQuery(user_id=message.from_user.id)
+        )
         await message.answer(
             (
-                f"Pair: {settings.default_source_lang}/{settings.default_target_lang}\n"
+                "Pair: "
+                f"{settings.default_source_lang}/"
+                f"{settings.default_target_lang}\n"
                 f"Direction: {settings.default_translation_direction}\n"
                 f"Timezone: {settings.timezone}\n"
                 f"Notify time: {settings.notification_time_local}\n"
@@ -110,7 +122,9 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
         )
 
     @router.message(Command("direction"))
-    async def handle_direction(message: Message, command: CommandObject) -> None:
+    async def handle_direction(
+        message: Message, command: CommandObject
+    ) -> None:
         if message.from_user is None:
             return
         direction = _parse_direction(command.args)
@@ -124,7 +138,9 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
         )
 
     @router.message(Command("notifytime"))
-    async def handle_notify_time(message: Message, command: CommandObject) -> None:
+    async def handle_notify_time(
+        message: Message, command: CommandObject
+    ) -> None:
         if message.from_user is None:
             return
         parsed_time = _parse_notification_time(command.args)
@@ -138,7 +154,9 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
         )
 
     @router.message(Command("timezone"))
-    async def handle_timezone(message: Message, command: CommandObject) -> None:
+    async def handle_timezone(
+        message: Message, command: CommandObject
+    ) -> None:
         if message.from_user is None:
             return
         timezone_name = (command.args or "").strip()
@@ -148,7 +166,9 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
         try:
             ZoneInfo(timezone_name)
         except ZoneInfoNotFoundError:
-            await message.answer("Timezone must be a valid IANA timezone name.")
+            await message.answer(
+                "Timezone must be a valid IANA timezone name."
+            )
             return
         await _update_settings(
             container=container,
@@ -157,7 +177,9 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
         )
 
     @router.message(Command("notifications"))
-    async def handle_notifications(message: Message, command: CommandObject) -> None:
+    async def handle_notifications(
+        message: Message, command: CommandObject
+    ) -> None:
         if message.from_user is None:
             return
         raw_value = (command.args or "").strip().casefold()
@@ -191,7 +213,9 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
         await message.answer("There is no active quiz session.")
 
     @router.message(Command("notlearning"))
-    async def handle_not_learning(message: Message, command: CommandObject) -> None:
+    async def handle_not_learning(
+        message: Message, command: CommandObject
+    ) -> None:
         await _toggle_learning_from_command(
             container=container,
             message=message,
@@ -227,7 +251,9 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
             )
             await message.answer(answer_message)
             if quiz_result.next_prompt is not None:
-                await message.answer(_format_quiz_prompt(quiz_result.next_prompt))
+                await message.answer(
+                    _format_quiz_prompt(quiz_result.next_prompt)
+                )
             return
         except QuizSessionNotFoundError:
             pass
@@ -243,7 +269,9 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
                 ),
             )
         except TranslationProviderError:
-            await message.answer("Translation provider is unavailable right now.")
+            await message.answer(
+                "Translation provider is unavailable right now."
+            )
             return
         except ApplicationError as error:
             await message.answer(str(error))
@@ -296,18 +324,24 @@ async def _update_settings(
 ) -> None:
     if message.from_user is None:
         return
-    current = container.get_settings.execute(GetSettingsQuery(user_id=message.from_user.id))
+    current = container.get_settings.execute(
+        GetSettingsQuery(user_id=message.from_user.id)
+    )
     try:
         updated = container.update_settings.execute(
             UpdateSettingsCommand(
                 user_id=message.from_user.id,
-                default_source_lang=default_source_lang or current.default_source_lang,
-                default_target_lang=default_target_lang or current.default_target_lang,
+                default_source_lang=default_source_lang
+                or current.default_source_lang,
+                default_target_lang=default_target_lang
+                or current.default_target_lang,
                 default_translation_direction=(
-                    default_translation_direction or current.default_translation_direction
+                    default_translation_direction
+                    or current.default_translation_direction
                 ),
                 timezone=timezone or current.timezone,
-                notification_time_local=notification_time_local or current.notification_time_local,
+                notification_time_local=notification_time_local
+                or current.notification_time_local,
                 notifications_enabled=(
                     current.notifications_enabled
                     if notifications_enabled is None
@@ -321,7 +355,9 @@ async def _update_settings(
     await message.answer(
         (
             "Settings updated.\n"
-            f"Pair: {updated.default_source_lang}/{updated.default_target_lang}\n"
+            "Pair: "
+            f"{updated.default_source_lang}/"
+            f"{updated.default_target_lang}\n"
             f"Direction: {updated.default_translation_direction}\n"
             f"Timezone: {updated.timezone}\n"
             f"Notify time: {updated.notification_time_local}\n"
@@ -343,7 +379,9 @@ async def _toggle_learning_from_command(
     raw_card_id = (command.args or "").strip()
     if not raw_card_id:
         await message.answer(
-            f"Usage: /{'restore' if learning_enabled else 'notlearning'} <card_id>"
+            "Usage: "
+            f"/{'restore' if learning_enabled else 'notlearning'} "
+            "<card_id>"
         )
         return
     try:
@@ -362,7 +400,10 @@ async def _toggle_learning_from_command(
     except ApplicationError as error:
         await message.answer(str(error))
         return
-    await message.answer(f"{card.id} is now {action_label}. Current status: {card.learning_status}")
+    await message.answer(
+        f"{card.id} is now {action_label}. "
+        f"Current status: {card.learning_status}"
+    )
 
 
 def _format_quiz_prompt(prompt) -> str:

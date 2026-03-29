@@ -1,33 +1,23 @@
-"""Runtime wiring, duplicate-module smoke, and export tests."""
+"""Runtime wiring and export tests."""
 
 from __future__ import annotations
 
 import asyncio
 from importlib import import_module
-from datetime import time
 
 import pytest
-from fastapi import APIRouter
 
 from spaced_repetition_bot import application
-from spaced_repetition_bot.application.dtos import GetHistoryQuery, TranslatePhraseCommand
-from spaced_repetition_bot.domain.enums import ReviewDirection
-from spaced_repetition_bot.domain.policies import (
-    FixedIntervalSpacedRepetitionPolicy,
-    NormalizedTextAnswerPolicy,
-)
-from spaced_repetition_bot.infrastructure.repositories import (
-    InMemoryPhraseRepository,
-    InMemoryQuizSessionRepository,
-    InMemorySettingsRepository,
-)
-from spaced_repetition_bot.infrastructure.translators import MockTranslationProvider
 from spaced_repetition_bot.bootstrap import (
     build_container,
     build_translation_provider,
 )
 from spaced_repetition_bot.infrastructure.clock import SystemClock
 from spaced_repetition_bot.infrastructure.config import AppConfig
+from spaced_repetition_bot.application.dtos import (
+    GetHistoryQuery,
+    TranslatePhraseCommand,
+)
 from spaced_repetition_bot.infrastructure.translators import (
     MockTranslationProvider,
     YandexTranslationProvider,
@@ -205,23 +195,9 @@ def test_public_exports_point_to_canonical_runtime_modules() -> None:
     assert callable(build_telegram_router)
 
 
-def test_duplicate_application_and_presentation_modules_are_importable_and_register(
-    fixed_now,
-) -> None:
-    container = build_test_container(fixed_now)
-    router = APIRouter()
-
-    duplicate_route_modules = [
-        "spaced_repetition_bot.presentation.api_health",
-        "spaced_repetition_bot.presentation.api_history",
-        "spaced_repetition_bot.presentation.api_learning",
-        "spaced_repetition_bot.presentation.api_progress",
-        "spaced_repetition_bot.presentation.api_due_reviews",
-        "spaced_repetition_bot.presentation.api_submit_review",
-        "spaced_repetition_bot.presentation.api_settings",
-        "spaced_repetition_bot.presentation.api_translations",
-    ]
-    duplicate_use_case_modules = [
+@pytest.mark.parametrize(
+    "module_name",
+    [
         "spaced_repetition_bot.application.dto_history",
         "spaced_repetition_bot.application.dto_progress",
         "spaced_repetition_bot.application.dto_reviews",
@@ -231,110 +207,27 @@ def test_duplicate_application_and_presentation_modules_are_importable_and_regis
         "spaced_repetition_bot.application.progress_use_case",
         "spaced_repetition_bot.application.review_use_cases",
         "spaced_repetition_bot.application.settings_use_case",
+        "spaced_repetition_bot.application.toggle_learning_command",
         "spaced_repetition_bot.application.toggle_learning_use_case",
         "spaced_repetition_bot.application.translation_use_case",
-    ]
-
-    for module_name in duplicate_route_modules:
-        module = import_module(module_name)
-        route_registrars = [
-            value
-            for name, value in vars(module).items()
-            if name.startswith("add_")
-        ]
-        assert route_registrars
-        for registrar in route_registrars:
-            registrar(router, container)
-
-    for module_name in duplicate_use_case_modules:
+        "spaced_repetition_bot.application.use_case_common",
+        "spaced_repetition_bot.presentation.api_due_reviews",
+        "spaced_repetition_bot.presentation.api_errors",
+        "spaced_repetition_bot.presentation.api_health",
+        "spaced_repetition_bot.presentation.api_history",
+        "spaced_repetition_bot.presentation.api_history_models",
+        "spaced_repetition_bot.presentation.api_learning",
+        "spaced_repetition_bot.presentation.api_learning_models",
+        "spaced_repetition_bot.presentation.api_progress",
+        "spaced_repetition_bot.presentation.api_progress_models",
+        "spaced_repetition_bot.presentation.api_review_models",
+        "spaced_repetition_bot.presentation.api_settings",
+        "spaced_repetition_bot.presentation.api_settings_models",
+        "spaced_repetition_bot.presentation.api_submit_review",
+        "spaced_repetition_bot.presentation.api_translation_models",
+        "spaced_repetition_bot.presentation.api_translations",
+    ],
+)
+def test_removed_split_modules_are_no_longer_importable(module_name: str) -> None:
+    with pytest.raises(ModuleNotFoundError):
         import_module(module_name)
-
-    assert len(router.routes) == 9
-
-
-def test_split_application_modules_support_basic_smoke_flow(fixed_now) -> None:
-    settings_repository = InMemorySettingsRepository()
-    phrase_repository = InMemoryPhraseRepository()
-    translator = MockTranslationProvider()
-    scheduler = FixedIntervalSpacedRepetitionPolicy()
-    answer_policy = NormalizedTextAnswerPolicy()
-
-    class Clock:
-        def __init__(self, current):
-            self.current = current
-
-        def now(self):
-            return self.current
-
-    clock = Clock(fixed_now)
-
-    translation_module = import_module(
-        "spaced_repetition_bot.application.translation_use_case"
-    )
-    settings_module = import_module(
-        "spaced_repetition_bot.application.settings_use_case"
-    )
-    history_module = import_module(
-        "spaced_repetition_bot.application.history_use_case"
-    )
-    progress_module = import_module(
-        "spaced_repetition_bot.application.progress_use_case"
-    )
-    review_module = import_module(
-        "spaced_repetition_bot.application.review_use_cases"
-    )
-    toggle_module = import_module(
-        "spaced_repetition_bot.application.toggle_learning_use_case"
-    )
-    dto_translation = import_module(
-        "spaced_repetition_bot.application.dto_translation"
-    )
-    dto_settings = import_module("spaced_repetition_bot.application.dto_settings")
-    dto_history = import_module("spaced_repetition_bot.application.dto_history")
-    dto_progress = import_module("spaced_repetition_bot.application.dto_progress")
-    dto_reviews = import_module("spaced_repetition_bot.application.dto_reviews")
-    toggle_command = import_module(
-        "spaced_repetition_bot.application.toggle_learning_command"
-    )
-
-    settings_module.UpdateSettingsUseCase(settings_repository).execute(
-        dto_settings.UpdateSettingsCommand(
-            user_id=1,
-            default_source_lang="en",
-            default_target_lang="es",
-            timezone="UTC",
-            notification_time_local=time(hour=9),
-            notifications_enabled=True,
-        )
-    )
-    translation_result = translation_module.TranslatePhraseUseCase(
-        phrase_repository=phrase_repository,
-        settings_repository=settings_repository,
-        translation_provider=translator,
-        spaced_repetition_policy=scheduler,
-        clock=clock,
-    ).execute(dto_translation.TranslatePhraseCommand(user_id=1, text="hello"))
-    history = history_module.GetHistoryUseCase(phrase_repository).execute(
-        dto_history.GetHistoryQuery(user_id=1)
-    )
-    progress = progress_module.GetUserProgressUseCase(
-        phrase_repository=phrase_repository,
-        clock=clock,
-    ).execute(dto_progress.GetUserProgressQuery(user_id=1))
-    clock.current = fixed_now.replace(day=fixed_now.day + 2)
-    due_reviews = review_module.GetDueReviewsUseCase(
-        phrase_repository=phrase_repository,
-        clock=clock,
-    ).execute(user_id=1)
-    toggled = toggle_module.ToggleLearningUseCase(phrase_repository).execute(
-        toggle_command.ToggleLearningCommand(
-            user_id=1,
-            card_id=translation_result.card_id,
-            learning_enabled=False,
-        )
-    )
-
-    assert history[0].card_id == translation_result.card_id
-    assert progress.total_cards == 1
-    assert due_reviews[0].direction is ReviewDirection.FORWARD
-    assert toggled.learning_status.value == "not_learning"

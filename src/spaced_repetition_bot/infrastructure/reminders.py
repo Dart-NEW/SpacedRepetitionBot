@@ -42,9 +42,14 @@ class TelegramReminderService:
             local_now = now.astimezone(timezone)
             if settings.last_notification_local_date == local_now.date():
                 continue
-            if local_now.time().replace(second=0, microsecond=0) < settings.notification_time_local:
+            if (
+                local_now.time().replace(second=0, microsecond=0)
+                < settings.notification_time_local
+            ):
                 continue
-            due_reviews = self.get_due_reviews_use_case.execute(settings.user_id)
+            due_reviews = self.get_due_reviews_use_case.execute(
+                settings.user_id
+            )
             if not due_reviews:
                 continue
             try:
@@ -57,4 +62,6 @@ class TelegramReminderService:
                 )
             except Exception:
                 continue
-            self.settings_repository.save(settings.mark_notification_sent(local_now.date()))
+            self.settings_repository.save(
+                settings.mark_notification_sent(local_now.date())
+            )

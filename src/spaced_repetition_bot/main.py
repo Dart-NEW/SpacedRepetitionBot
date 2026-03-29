@@ -1,5 +1,7 @@
 """FastAPI application entrypoint."""
 
+import logging
+
 from fastapi import FastAPI
 
 from spaced_repetition_bot.bootstrap import build_container
@@ -10,6 +12,8 @@ def create_app() -> FastAPI:
     """Create the FastAPI app."""
 
     container = build_container()
+    if not container.config.debug:
+        logging.getLogger("uvicorn.access").disabled = True
     app = FastAPI(
         title=container.config.app_name,
         version=container.config.app_version,

@@ -21,7 +21,9 @@ class UserSettings:
     notifications_enabled: bool = True
     last_notification_local_date: date | None = None
 
-    def translation_pair_for(self, direction: ReviewDirection) -> tuple[str, str]:
+    def translation_pair_for(
+        self, direction: ReviewDirection
+    ) -> tuple[str, str]:
         """Return the active source-target pair for a direction."""
 
         if direction is ReviewDirection.FORWARD:

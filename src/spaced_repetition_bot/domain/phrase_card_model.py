@@ -61,9 +61,11 @@ class PhraseCard:
         """Return a new card with one track replaced."""
 
         updated_tracks = tuple(
-            updated_track
-            if track.direction == updated_track.direction
-            else track
+            (
+                updated_track
+                if track.direction == updated_track.direction
+                else track
+            )
             for track in self.review_tracks
         )
         next_status = self.learning_status
