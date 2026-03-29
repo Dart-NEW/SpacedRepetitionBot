@@ -7,7 +7,10 @@ from dataclasses import dataclass, field
 import requests
 from requests import Response, Session
 
-from spaced_repetition_bot.application.errors import TranslationProviderError
+from spaced_repetition_bot.application.errors import (
+    InvalidSettingsError,
+    TranslationProviderError,
+)
 from spaced_repetition_bot.application.dtos import TranslationGatewayResult
 
 
@@ -96,7 +99,6 @@ class YandexTranslationProvider:
                 headers=headers,
                 timeout=self.timeout_seconds,
             )
-            response.raise_for_status()
         except requests.Timeout as error:
             raise TranslationProviderError(
                 "Translation service timed out."
@@ -105,6 +107,7 @@ class YandexTranslationProvider:
             raise TranslationProviderError(
                 "Translation service request failed."
             ) from error
+        self._raise_for_error_response(response)
         return response
 
     @staticmethod
@@ -148,3 +151,27 @@ class YandexTranslationProvider:
                 "Translation service returned an invalid source language."
             )
         return translated_text, detected_source_lang
+
+    @staticmethod
+    def _raise_for_error_response(response: Response) -> None:
+        if response.ok:
+            return
+        if YandexTranslationProvider._is_invalid_language_response(response):
+            raise InvalidSettingsError(
+                "Language codes are not supported by the translation provider."
+            )
+        raise TranslationProviderError("Translation service request failed.")
+
+    @staticmethod
+    def _is_invalid_language_response(response: Response) -> bool:
+        if response.status_code != 400:
+            return False
+        body = response.text.casefold()
+        invalid_language_markers = (
+            "sourcelanguagecode",
+            "targetlanguagecode",
+            "language code",
+            "unsupported",
+            "not supported",
+        )
+        return any(marker in body for marker in invalid_language_markers)

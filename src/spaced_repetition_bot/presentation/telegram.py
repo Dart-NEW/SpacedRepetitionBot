@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import time
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -234,11 +235,12 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
             await message.answer(str(error))
             return
         try:
-            result = container.translate_phrase.execute(
+            result = await asyncio.to_thread(
+                container.translate_phrase.execute,
                 TranslatePhraseCommand(
                     user_id=message.from_user.id,
                     text=message.text,
-                )
+                ),
             )
         except TranslationProviderError:
             await message.answer("Translation provider is unavailable right now.")
