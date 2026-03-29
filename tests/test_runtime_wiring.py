@@ -14,6 +14,7 @@ try:
     from spaced_repetition_bot.bootstrap import build_container
     from spaced_repetition_bot.infrastructure.clock import SystemClock
     from spaced_repetition_bot.infrastructure.config import AppConfig
+    from spaced_repetition_bot.domain.enums import ReviewDirection
     from spaced_repetition_bot.main import create_app
     from spaced_repetition_bot.presentation import (
         build_api_router,
@@ -58,13 +59,14 @@ def test_build_container_wires_use_cases_against_shared_repositories() -> None:
         TranslatePhraseCommand(
             user_id=1,
             text="hello",
-            source_lang="en",
-            target_lang="es",
         )
     )
     history = container.get_history.execute(GetHistoryQuery(user_id=1))
 
     assert history[0].card_id == translation.card_id
+    assert translation.direction is ReviewDirection.FORWARD
+    assert translation.source_lang == "en"
+    assert translation.target_lang == "es"
     assert container.config.app_name == "Test App"
 
 

@@ -19,7 +19,11 @@ try:
         build_api_router,
         to_http_exception,
     )
-    from tests.support import build_test_dependencies, build_test_use_cases
+    from tests.support import (
+        NoOpReminderService,
+        build_test_dependencies,
+        build_test_use_cases,
+    )
 except (
     ImportError
 ):  # pragma: no cover - exercised in CI with full deps installed.
@@ -52,10 +56,16 @@ def build_api_test_context() -> ApiTestContext:
         get_history=use_cases["get_history"],
         toggle_learning=use_cases["toggle"],
         get_due_reviews=use_cases["due"],
+        start_quiz_session=use_cases["start_quiz"],
+        skip_quiz_session=use_cases["skip_quiz"],
+        submit_active_quiz_answer=use_cases["submit_active_quiz"],
         submit_review_answer=use_cases["answer"],
         get_user_progress=use_cases["progress"],
         get_settings=use_cases["get_settings"],
         update_settings=use_cases["update_settings"],
+        settings_repository=dependencies["settings_repository"],
+        clock=dependencies["clock"],
+        reminder_service=NoOpReminderService(),
     )
     app = FastAPI(
         title=container.config.app_name,
@@ -133,13 +143,15 @@ def test_api_flow_covers_translation_history_progress_settings_and_reviews(
         json={
             "user_id": 1,
             "text": "good luck",
-            "source_lang": "en",
-            "target_lang": "es",
+            "direction": "forward",
             "learn": True,
         },
     )
     assert translation_response.status_code == 201
     card_id = translation_response.json()["card_id"]
+    assert translation_response.json()["direction"] == "forward"
+    assert translation_response.json()["source_lang"] == "en"
+    assert translation_response.json()["target_lang"] == "es"
 
     history_response = api_context.client.get(
         "/api/test/history", params={"user_id": 1}
@@ -165,6 +177,7 @@ def test_api_flow_covers_translation_history_progress_settings_and_reviews(
             "user_id": 1,
             "default_source_lang": "de",
             "default_target_lang": "it",
+            "default_translation_direction": "reverse",
             "timezone": "Europe/Berlin",
             "notification_time_local": "08:15:00",
             "notifications_enabled": False,
@@ -172,6 +185,7 @@ def test_api_flow_covers_translation_history_progress_settings_and_reviews(
     )
     assert update_response.status_code == 200
     assert update_response.json()["default_source_lang"] == "de"
+    assert update_response.json()["default_translation_direction"] == "reverse"
 
     api_context.clock.current += timedelta(days=2)
 
@@ -218,8 +232,7 @@ def test_api_maps_not_found_not_due_and_learning_disabled_errors(
         json={
             "user_id": 1,
             "text": "good luck",
-            "source_lang": "en",
-            "target_lang": "es",
+            "direction": "forward",
             "learn": True,
         },
     )

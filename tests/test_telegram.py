@@ -4,18 +4,28 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
+from uuid import uuid4
 
 import pytest
 
 try:
+    from spaced_repetition_bot.application.dtos import QuizSessionPrompt
     from spaced_repetition_bot.bootstrap import ApplicationContainer
+    from spaced_repetition_bot.domain.enums import ReviewDirection
     from spaced_repetition_bot.infrastructure.config import AppConfig
     from spaced_repetition_bot.presentation.telegram import (
+        _format_quiz_prompt,
+        _parse_direction,
+        _parse_notification_time,
         build_telegram_router,
     )
     from spaced_repetition_bot import run_telegram_bot
-    from tests.support import build_test_dependencies, build_test_use_cases
+    from tests.support import (
+        NoOpReminderService,
+        build_test_dependencies,
+        build_test_use_cases,
+    )
 except (
     ImportError
 ):  # pragma: no cover - exercised in CI with full deps installed.
@@ -60,10 +70,16 @@ def build_telegram_test_container() -> ApplicationContainer:
         get_history=use_cases["get_history"],
         toggle_learning=use_cases["toggle"],
         get_due_reviews=use_cases["due"],
+        start_quiz_session=use_cases["start_quiz"],
+        skip_quiz_session=use_cases["skip_quiz"],
+        submit_active_quiz_answer=use_cases["submit_active_quiz"],
         submit_review_answer=use_cases["answer"],
         get_user_progress=use_cases["progress"],
         get_settings=use_cases["get_settings"],
         update_settings=use_cases["update_settings"],
+        settings_repository=dependencies["settings_repository"],
+        clock=dependencies["clock"],
+        reminder_service=NoOpReminderService(),
     )
 
 
@@ -85,8 +101,12 @@ def test_telegram_handlers_cover_start_history_progress_and_translation() -> (
     start_message = FakeMessage(from_user=FakeUser(id=1))
     asyncio.run(callbacks["handle_start"](start_message))
     assert start_message.answers == [
-        "Send me a phrase and I will translate it "
-        "and add it to your review queue."
+        (
+            "Send me a phrase and I will translate it with "
+            "your active language pair.\nUse /quiz for due reviews, "
+            "/settings to inspect your defaults, and /direction "
+            "forward|reverse to change the translation direction."
+        )
     ]
 
     empty_history_message = FakeMessage(from_user=FakeUser(id=1))
@@ -97,15 +117,26 @@ def test_telegram_handlers_cover_start_history_progress_and_translation() -> (
         from_user=FakeUser(id=1), text="good luck"
     )
     asyncio.run(callbacks["handle_translation"](translation_message))
-    assert "buena suerte" in translation_message.answers[0]
+    assert translation_message.answers == [
+        (
+            "good luck -> buena suerte\n"
+            "Direction: forward\n"
+            "Pair: en/es\n"
+            "Learning status: active"
+        )
+    ]
 
     progress_message = FakeMessage(from_user=FakeUser(id=1))
     asyncio.run(callbacks["handle_progress"](progress_message))
-    assert "Cards: 1" in progress_message.answers[0]
+    assert progress_message.answers == [
+        "Cards: 1, active: 1, learned: 0, due: 0"
+    ]
 
     history_message = FakeMessage(from_user=FakeUser(id=1))
     asyncio.run(callbacks["handle_history"](history_message))
-    assert history_message.answers == ["good luck -> buena suerte"]
+    assert len(history_message.answers) == 1
+    assert "good luck -> buena suerte" in history_message.answers[0]
+    assert "Status: active" in history_message.answers[0]
 
 
 def test_telegram_handlers_return_early_when_message_has_no_user_or_text() -> (
@@ -157,7 +188,7 @@ def test_run_starts_polling_with_built_router(
 
     asyncio.run(run_telegram_bot.run())
 
-    assert events["token"] == "change-me"
+    assert events["token"] == fake_container.config.telegram_bot_token
     assert events["router"] is fake_router
     assert isinstance(events["bot"], FakeBot)
 
@@ -176,3 +207,26 @@ def test_main_delegates_to_asyncio_run(
     run_telegram_bot.main()
 
     assert called["coroutine"].cr_code.co_name == "run"
+
+
+def test_telegram_helper_parsers_and_prompt_formatter() -> None:
+    assert _parse_direction("forward") is ReviewDirection.FORWARD
+    assert _parse_direction("reverse") is ReviewDirection.REVERSE
+    assert _parse_direction("sideways") is None
+
+    assert _parse_notification_time("08:15") == time(hour=8, minute=15)
+    assert _parse_notification_time("24:00") is None
+    assert _parse_notification_time("bad") is None
+
+    prompt = QuizSessionPrompt(
+        card_id=uuid4(),
+        direction=ReviewDirection.FORWARD,
+        prompt_text="good luck",
+        expected_answer="buena suerte",
+        step_index=0,
+    )
+    formatted_prompt = _format_quiz_prompt(prompt)
+
+    assert "Quiz card:" in formatted_prompt
+    assert "Direction: forward" in formatted_prompt
+    assert "Prompt: good luck" in formatted_prompt

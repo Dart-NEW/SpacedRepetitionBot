@@ -331,36 +331,47 @@ class GetUserProgressUseCase:
 
     def execute(self, query: GetUserProgressQuery) -> UserProgressSnapshot:
         cards = self.phrase_repository.list_by_user(query.user_id)
-        now = self.clock.now()
-        total_review_tracks = sum(len(card.review_tracks) for card in cards)
-        completed_review_tracks = sum(
-            track.is_completed
-            for card in cards
-            for track in card.review_tracks
-        )
-        due_reviews = sum(
-            track.is_due(now)
-            for card in cards
-            if card.learning_status is LearningStatus.ACTIVE
-            for track in card.review_tracks
-        )
+        progress = self._summarize_cards(cards, self.clock.now())
         return UserProgressSnapshot(
             total_cards=len(cards),
-            active_cards=sum(
-                card.learning_status is LearningStatus.ACTIVE for card in cards
-            ),
-            learned_cards=sum(
-                card.learning_status is LearningStatus.LEARNED
-                for card in cards
-            ),
-            not_learning_cards=sum(
-                card.learning_status is LearningStatus.NOT_LEARNING
-                for card in cards
-            ),
-            due_reviews=due_reviews,
-            completed_review_tracks=completed_review_tracks,
-            total_review_tracks=total_review_tracks,
+            active_cards=progress["active_cards"],
+            learned_cards=progress["learned_cards"],
+            not_learning_cards=progress["not_learning_cards"],
+            due_reviews=progress["due_reviews"],
+            completed_review_tracks=progress["completed_review_tracks"],
+            total_review_tracks=progress["total_review_tracks"],
         )
+
+    def _summarize_cards(self, cards: list[PhraseCard], now) -> dict[str, int]:
+        progress = {
+            "active_cards": 0,
+            "learned_cards": 0,
+            "not_learning_cards": 0,
+            "due_reviews": 0,
+            "completed_review_tracks": 0,
+            "total_review_tracks": 0,
+        }
+        for card in cards:
+            self._count_card_status(card, progress)
+            for track in card.review_tracks:
+                progress["total_review_tracks"] += 1
+                if track.is_completed:
+                    progress["completed_review_tracks"] += 1
+                if (
+                    card.learning_status is LearningStatus.ACTIVE
+                    and track.is_due(now)
+                ):
+                    progress["due_reviews"] += 1
+        return progress
+
+    @staticmethod
+    def _count_card_status(card: PhraseCard, progress: dict[str, int]) -> None:
+        if card.learning_status is LearningStatus.ACTIVE:
+            progress["active_cards"] += 1
+        elif card.learning_status is LearningStatus.LEARNED:
+            progress["learned_cards"] += 1
+        else:
+            progress["not_learning_cards"] += 1
 
 
 @dataclass(slots=True)
