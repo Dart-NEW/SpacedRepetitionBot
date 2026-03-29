@@ -55,7 +55,10 @@ def test_system_clock_returns_timezone_aware_utc_datetime() -> None:
 def test_build_container_wires_use_cases_against_shared_repositories() -> None:
     container = build_container(
         AppConfig(
-            app_name="Test App", app_version="2.0.0", api_prefix="/api/test"
+            app_name="Test App",
+            app_version="2.0.0",
+            api_prefix="/api/test",
+            translation_provider="mock",
         )
     )
 
@@ -83,6 +86,7 @@ def test_build_container_honors_configured_minute_review_schedule() -> None:
             api_prefix="/api/test",
             review_intervals=(2, 3, 5, 7),
             review_interval_unit="minutes",
+            translation_provider="mock",
         )
     )
 

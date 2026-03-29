@@ -292,62 +292,9 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
     async def handle_translation(message: Message) -> None:
         if message.from_user is None or message.text is None:
             return
-        try:
-            quiz_result = container.submit_active_quiz_answer.execute(
-                user_id=message.from_user.id,
-                answer_text=message.text,
-            )
-            outcome_label = (
-                "Correct"
-                if quiz_result.review_result.outcome.value == "correct"
-                else "Incorrect"
-            )
-            next_review = (
-                str(quiz_result.review_result.next_review_at)
-                if quiz_result.review_result.next_review_at is not None
-                else "Track completed"
-            )
-            answer_message = (
-                f"Result: {outcome_label}\n"
-                f"Expected: {quiz_result.review_result.expected_answer}\n"
-                f"Next review: {next_review}\n"
-                f"Learning status: {quiz_result.review_result.learning_status}"
-            )
-            await message.answer(answer_message)
-            if quiz_result.next_prompt is not None:
-                await message.answer(
-                    _format_quiz_prompt(quiz_result.next_prompt)
-                )
+        if await _try_handle_quiz_answer(container, message):
             return
-        except QuizSessionNotFoundError:
-            pass
-        except ApplicationError as error:
-            await message.answer(str(error))
-            return
-        try:
-            result = await asyncio.to_thread(
-                container.translate_phrase.execute,
-                TranslatePhraseCommand(
-                    user_id=message.from_user.id,
-                    text=message.text,
-                ),
-            )
-        except TranslationProviderError:
-            await message.answer(
-                "Translation provider is unavailable right now."
-            )
-            return
-        except ApplicationError as error:
-            await message.answer(str(error))
-            return
-        await message.answer(
-            (
-                f"{result.source_text} -> {result.translated_text}\n"
-                f"Direction: {result.direction}\n"
-                f"Pair: {result.source_lang}/{result.target_lang}\n"
-                f"Learning status: {result.learning_status}"
-            )
-        )
+        await _handle_translation_request(container, message)
 
     return router
 
@@ -467,6 +414,87 @@ async def _toggle_learning_from_command(
     await message.answer(
         f"{card.id} is now {action_label}. "
         f"Current status: {card.learning_status}"
+    )
+
+
+async def _try_handle_quiz_answer(
+    container: ApplicationContainer, message: Message
+) -> bool:
+    """Handle the message as a quiz answer when a session is active."""
+
+    if message.from_user is None or message.text is None:
+        return False
+    try:
+        quiz_result = container.submit_active_quiz_answer.execute(
+            user_id=message.from_user.id,
+            answer_text=message.text,
+        )
+    except QuizSessionNotFoundError:
+        return False
+    except ApplicationError as error:
+        await message.answer(str(error))
+        return True
+
+    await message.answer(_format_quiz_answer_message(quiz_result))
+    if quiz_result.next_prompt is not None:
+        await message.answer(_format_quiz_prompt(quiz_result.next_prompt))
+    return True
+
+
+async def _handle_translation_request(
+    container: ApplicationContainer, message: Message
+) -> None:
+    """Translate plain text when there is no active quiz session."""
+
+    if message.from_user is None or message.text is None:
+        return
+    try:
+        result = await asyncio.to_thread(
+            container.translate_phrase.execute,
+            TranslatePhraseCommand(
+                user_id=message.from_user.id,
+                text=message.text,
+            ),
+        )
+    except TranslationProviderError:
+        await message.answer("Translation provider is unavailable right now.")
+        return
+    except ApplicationError as error:
+        await message.answer(str(error))
+        return
+
+    await message.answer(_format_translation_result_message(result))
+
+
+def _format_quiz_answer_message(quiz_result) -> str:
+    """Build a compact quiz answer response for Telegram."""
+
+    outcome_label = (
+        "Correct"
+        if quiz_result.review_result.outcome.value == "correct"
+        else "Incorrect"
+    )
+    next_review = (
+        str(quiz_result.review_result.next_review_at)
+        if quiz_result.review_result.next_review_at is not None
+        else "Track completed"
+    )
+    return (
+        f"Result: {outcome_label}\n"
+        f"Expected: {quiz_result.review_result.expected_answer}\n"
+        f"Next review: {next_review}\n"
+        f"Learning status: {quiz_result.review_result.learning_status}"
+    )
+
+
+def _format_translation_result_message(result) -> str:
+    """Build a compact translation response for Telegram."""
+
+    return (
+        f"{result.source_text} -> {result.translated_text}\n"
+        f"Direction: {result.direction}\n"
+        f"Pair: {result.source_lang}/{result.target_lang}\n"
+        f"Learning status: {result.learning_status}"
     )
 
 
