@@ -37,7 +37,9 @@ from spaced_repetition_bot.infrastructure.repositories import (
     InMemoryQuizSessionRepository,
     InMemorySettingsRepository,
 )
-from spaced_repetition_bot.infrastructure.translators import MockTranslationProvider
+from spaced_repetition_bot.infrastructure.translators import (
+    MockTranslationProvider,
+)
 
 
 @dataclass(slots=True)
@@ -127,7 +129,10 @@ def test_translate_phrase_creates_two_review_tracks() -> None:
     assert result.direction is ReviewDirection.FORWARD
     assert result.learning_status is LearningStatus.ACTIVE
     assert len(result.scheduled_reviews) == 2
-    assert all(item.next_review_at == now + timedelta(days=2) for item in result.scheduled_reviews)
+    assert all(
+        item.next_review_at == now + timedelta(days=2)
+        for item in result.scheduled_reviews
+    )
 
 
 def test_translate_uses_reverse_direction_from_settings() -> None:
@@ -280,7 +285,9 @@ def test_quiz_session_resumes_and_moves_to_next_due_prompt() -> None:
 def test_skip_quiz_session_keeps_reviews_due() -> None:
     now = datetime(2026, 3, 28, 12, 0, tzinfo=timezone.utc)
     context = build_test_context(now)
-    context["translate"].execute(TranslatePhraseCommand(user_id=1, text="good luck"))
+    context["translate"].execute(
+        TranslatePhraseCommand(user_id=1, text="good luck")
+    )
     context["clock"].current = now + timedelta(days=2)
 
     prompt = context["start_quiz"].execute(user_id=1)

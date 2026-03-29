@@ -54,7 +54,9 @@ class InMemoryPhraseRepository:
         return self._cards.get(card_id)
 
     def list_by_user(self, user_id: int) -> list[PhraseCard]:
-        return [card for card in self._cards.values() if card.user_id == user_id]
+        return [
+            card for card in self._cards.values() if card.user_id == user_id
+        ]
 
 
 @dataclass(slots=True)
@@ -97,14 +99,17 @@ def _record_to_track(record: ReviewTrackRecord) -> ReviewTrack:
         step_index=record.step_index,
         next_review_at=_normalize_datetime(record.next_review_at),
         review_count=record.review_count,
-        last_outcome=ReviewOutcome(record.last_outcome) if record.last_outcome else None,
+        last_outcome=(
+            ReviewOutcome(record.last_outcome) if record.last_outcome else None
+        ),
         completed_at=_normalize_datetime(record.completed_at),
     )
 
 
 def _record_to_card(record: PhraseCardRecord) -> PhraseCard:
     track_map = {
-        ReviewDirection(track.direction): _record_to_track(track) for track in record.review_tracks
+        ReviewDirection(track.direction): _record_to_track(track)
+        for track in record.review_tracks
     }
     return PhraseCard(
         id=UUID(record.id),
@@ -128,7 +133,9 @@ def _record_to_settings(record: UserSettingsRecord) -> UserSettings:
         user_id=record.user_id,
         default_source_lang=record.default_source_lang,
         default_target_lang=record.default_target_lang,
-        default_translation_direction=ReviewDirection(record.default_translation_direction),
+        default_translation_direction=ReviewDirection(
+            record.default_translation_direction
+        ),
         timezone=record.timezone,
         notification_time_local=record.notification_time_local,
         notifications_enabled=record.notifications_enabled,
@@ -136,7 +143,9 @@ def _record_to_settings(record: UserSettingsRecord) -> UserSettings:
     )
 
 
-def _record_to_quiz_session(record: TelegramQuizSessionRecord) -> TelegramQuizSession:
+def _record_to_quiz_session(
+    record: TelegramQuizSessionRecord,
+) -> TelegramQuizSession:
     return TelegramQuizSession(
         user_id=record.user_id,
         card_id=UUID(record.card_id),
@@ -156,7 +165,8 @@ def _apply_card(record: PhraseCardRecord, card: PhraseCard) -> None:
     record.archived_reason = card.archived_reason
 
     existing_by_direction = {
-        ReviewDirection(track.direction): track for track in record.review_tracks
+        ReviewDirection(track.direction): track
+        for track in record.review_tracks
     }
     next_tracks: list[ReviewTrackRecord] = []
     for track in card.review_tracks:
@@ -167,7 +177,9 @@ def _apply_card(record: PhraseCardRecord, card: PhraseCard) -> None:
         current.step_index = track.step_index
         current.next_review_at = _normalize_datetime(track.next_review_at)
         current.review_count = track.review_count
-        current.last_outcome = track.last_outcome.value if track.last_outcome else None
+        current.last_outcome = (
+            track.last_outcome.value if track.last_outcome else None
+        )
         current.completed_at = _normalize_datetime(track.completed_at)
         next_tracks.append(current)
     record.review_tracks = next_tracks
@@ -251,11 +263,15 @@ class SqlAlchemySettingsRepository:
                 session.add(record)
             record.default_source_lang = settings.default_source_lang
             record.default_target_lang = settings.default_target_lang
-            record.default_translation_direction = settings.default_translation_direction.value
+            record.default_translation_direction = (
+                settings.default_translation_direction.value
+            )
             record.timezone = settings.timezone
             record.notification_time_local = settings.notification_time_local
             record.notifications_enabled = settings.notifications_enabled
-            record.last_notification_local_date = settings.last_notification_local_date
+            record.last_notification_local_date = (
+                settings.last_notification_local_date
+            )
             session.commit()
             return _record_to_settings(record)
 
@@ -280,9 +296,13 @@ class SqlAlchemyQuizSessionRepository:
 
     def save(self, quiz_session: TelegramQuizSession) -> TelegramQuizSession:
         with self.session_factory() as session:
-            record = session.get(TelegramQuizSessionRecord, quiz_session.user_id)
+            record = session.get(
+                TelegramQuizSessionRecord, quiz_session.user_id
+            )
             if record is None:
-                record = TelegramQuizSessionRecord(user_id=quiz_session.user_id)
+                record = TelegramQuizSessionRecord(
+                    user_id=quiz_session.user_id
+                )
                 session.add(record)
             record.card_id = str(quiz_session.card_id)
             record.direction = quiz_session.direction.value

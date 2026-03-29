@@ -77,8 +77,9 @@ def handler_callbacks(container: ApplicationContainer) -> dict[str, object]:
     }
 
 
-def test_telegram_handlers_cover_start_history_progress_and_translation(
-) -> None:
+def test_telegram_handlers_cover_start_history_progress_and_translation() -> (
+    None
+):
     callbacks = handler_callbacks(build_telegram_test_container())
 
     start_message = FakeMessage(from_user=FakeUser(id=1))

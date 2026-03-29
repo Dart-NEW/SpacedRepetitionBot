@@ -267,9 +267,7 @@ def test_openapi_contract_contains_descriptions_and_response_examples(
             "description"
         ], f"{method.upper()} {path} is missing a description"
         for parameter in operation.get("parameters", []):
-            assert parameter[
-                "description"
-            ], (
+            assert parameter["description"], (
                 f"{method.upper()} {path} parameter "
                 f"{parameter['name']} lacks a description"
             )

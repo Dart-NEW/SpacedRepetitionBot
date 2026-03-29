@@ -7,7 +7,11 @@ from typing import Protocol
 from uuid import UUID
 
 from spaced_repetition_bot.application.dtos import TranslationGatewayResult
-from spaced_repetition_bot.domain.models import PhraseCard, TelegramQuizSession, UserSettings
+from spaced_repetition_bot.domain.models import (
+    PhraseCard,
+    TelegramQuizSession,
+    UserSettings,
+)
 
 
 class Clock(Protocol):

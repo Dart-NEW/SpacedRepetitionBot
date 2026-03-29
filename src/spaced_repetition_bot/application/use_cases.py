@@ -39,8 +39,16 @@ from spaced_repetition_bot.application.ports import (
     SettingsRepository,
     TranslationProvider,
 )
-from spaced_repetition_bot.domain.enums import LearningStatus, ReviewDirection, ReviewOutcome
-from spaced_repetition_bot.domain.models import PhraseCard, TelegramQuizSession, UserSettings
+from spaced_repetition_bot.domain.enums import (
+    LearningStatus,
+    ReviewDirection,
+    ReviewOutcome,
+)
+from spaced_repetition_bot.domain.models import (
+    PhraseCard,
+    TelegramQuizSession,
+    UserSettings,
+)
 from spaced_repetition_bot.domain.policies import (
     AnswerEvaluationPolicy,
     SpacedRepetitionPolicy,
@@ -80,7 +88,9 @@ def map_scheduled_review(track) -> ScheduledReviewItem:
     )
 
 
-def build_quiz_prompt(card: PhraseCard, direction: ReviewDirection) -> QuizSessionPrompt:
+def build_quiz_prompt(
+    card: PhraseCard, direction: ReviewDirection
+) -> QuizSessionPrompt:
     """Build a Telegram quiz prompt from a card."""
 
     track = card.track_for(direction)
@@ -128,7 +138,9 @@ def load_user_card(
 
     card = phrase_repository.get(card_id)
     if card is None or card.user_id != user_id:
-        raise CardNotFoundError(f"Card '{card_id}' was not found for user '{user_id}'.")
+        raise CardNotFoundError(
+            f"Card '{card_id}' was not found for user '{user_id}'."
+        )
     return card
 
 
@@ -145,7 +157,9 @@ class TranslatePhraseUseCase:
     def execute(self, command: TranslatePhraseCommand) -> TranslationResult:
         settings = self.settings_repository.get(command.user_id)
         if settings is None:
-            settings = self.settings_repository.save(default_settings(command.user_id))
+            settings = self.settings_repository.save(
+                default_settings(command.user_id)
+            )
         direction = command.direction or settings.default_translation_direction
         source_lang, target_lang = settings.translation_pair_for(direction)
         translated = self.translation_provider.translate(
@@ -155,7 +169,11 @@ class TranslatePhraseUseCase:
         )
         now = self.clock.now()
         tracks = self.spaced_repetition_policy.initialize_tracks(now)
-        learning_status = LearningStatus.ACTIVE if command.learn else LearningStatus.NOT_LEARNING
+        learning_status = (
+            LearningStatus.ACTIVE
+            if command.learn
+            else LearningStatus.NOT_LEARNING
+        )
         card = PhraseCard(
             id=uuid4(),
             user_id=command.user_id,
@@ -166,7 +184,9 @@ class TranslatePhraseUseCase:
             created_at=now,
             learning_status=learning_status,
             review_tracks=tracks,
-            archived_reason=None if command.learn else "created_without_learning",
+            archived_reason=(
+                None if command.learn else "created_without_learning"
+            ),
         )
         stored_card = self.phrase_repository.add(card)
         return TranslationResult(
@@ -178,7 +198,10 @@ class TranslatePhraseUseCase:
             target_lang=stored_card.target_lang,
             learning_status=stored_card.learning_status,
             provider_name=translated.provider_name,
-            scheduled_reviews=tuple(map_scheduled_review(track) for track in stored_card.review_tracks),
+            scheduled_reviews=tuple(
+                map_scheduled_review(track)
+                for track in stored_card.review_tracks
+            ),
         )
 
 
@@ -215,8 +238,14 @@ class ToggleLearningUseCase:
     phrase_repository: PhraseRepository
 
     def execute(self, command: ToggleLearningCommand) -> PhraseCard:
-        card = load_user_card(self.phrase_repository, command.card_id, command.user_id)
-        updated_card = card.enable_learning() if command.learning_enabled else card.disable_learning()
+        card = load_user_card(
+            self.phrase_repository, command.card_id, command.user_id
+        )
+        updated_card = (
+            card.enable_learning()
+            if command.learning_enabled
+            else card.disable_learning()
+        )
         return self.phrase_repository.save(updated_card)
 
 
@@ -244,24 +273,36 @@ class SubmitReviewAnswerUseCase:
     answer_evaluation_policy: AnswerEvaluationPolicy
     clock: Clock
 
-    def execute(self, command: SubmitReviewAnswerCommand) -> ReviewAnswerResult:
-        card = load_user_card(self.phrase_repository, command.card_id, command.user_id)
+    def execute(
+        self, command: SubmitReviewAnswerCommand
+    ) -> ReviewAnswerResult:
+        card = load_user_card(
+            self.phrase_repository, command.card_id, command.user_id
+        )
         if card.learning_status is LearningStatus.NOT_LEARNING:
-            raise LearningDisabledError(f"Card '{card.id}' is excluded from learning.")
+            raise LearningDisabledError(
+                f"Card '{card.id}' is excluded from learning."
+            )
         track = card.track_for(command.direction)
         now = self.clock.now()
         if not track.is_due(now):
             raise ReviewNotAvailableError(
-                f"Review for card '{card.id}' and direction '{command.direction}' is not due."
+                "Review for card "
+                f"'{card.id}' and direction '{command.direction}' "
+                "is not due."
             )
         expected = card.expected_answer_for(command.direction)
-        outcome = self._evaluate(expected=expected, provided=command.answer_text)
+        outcome = self._evaluate(
+            expected=expected, provided=command.answer_text
+        )
         updated_track = self.spaced_repetition_policy.apply_outcome(
             track=track,
             now=now,
             outcome=outcome,
         )
-        updated_card = self.phrase_repository.save(card.replace_track(updated_track))
+        updated_card = self.phrase_repository.save(
+            card.replace_track(updated_track)
+        )
         return ReviewAnswerResult(
             card_id=updated_card.id,
             direction=command.direction,
@@ -274,7 +315,9 @@ class SubmitReviewAnswerUseCase:
         )
 
     def _evaluate(self, expected: str, provided: str) -> ReviewOutcome:
-        if self.answer_evaluation_policy.is_correct(expected=expected, provided=provided):
+        if self.answer_evaluation_policy.is_correct(
+            expected=expected, provided=provided
+        ):
             return ReviewOutcome.CORRECT
         return ReviewOutcome.INCORRECT
 
@@ -291,7 +334,9 @@ class GetUserProgressUseCase:
         now = self.clock.now()
         total_review_tracks = sum(len(card.review_tracks) for card in cards)
         completed_review_tracks = sum(
-            track.is_completed for card in cards for track in card.review_tracks
+            track.is_completed
+            for card in cards
+            for track in card.review_tracks
         )
         due_reviews = sum(
             track.is_due(now)
@@ -301,10 +346,16 @@ class GetUserProgressUseCase:
         )
         return UserProgressSnapshot(
             total_cards=len(cards),
-            active_cards=sum(card.learning_status is LearningStatus.ACTIVE for card in cards),
-            learned_cards=sum(card.learning_status is LearningStatus.LEARNED for card in cards),
+            active_cards=sum(
+                card.learning_status is LearningStatus.ACTIVE for card in cards
+            ),
+            learned_cards=sum(
+                card.learning_status is LearningStatus.LEARNED
+                for card in cards
+            ),
             not_learning_cards=sum(
-                card.learning_status is LearningStatus.NOT_LEARNING for card in cards
+                card.learning_status is LearningStatus.NOT_LEARNING
+                for card in cards
             ),
             due_reviews=due_reviews,
             completed_review_tracks=completed_review_tracks,
@@ -319,7 +370,9 @@ class GetSettingsUseCase:
     settings_repository: SettingsRepository
 
     def execute(self, query: GetSettingsQuery) -> UserSettingsSnapshot:
-        settings = self.settings_repository.get(query.user_id) or default_settings(query.user_id)
+        settings = self.settings_repository.get(query.user_id) or (
+            default_settings(query.user_id)
+        )
         return map_settings_snapshot(settings)
 
 
@@ -330,19 +383,27 @@ class UpdateSettingsUseCase:
     settings_repository: SettingsRepository
 
     def execute(self, command: UpdateSettingsCommand) -> UserSettingsSnapshot:
-        source_lang = self._normalize_language_code(command.default_source_lang)
-        target_lang = self._normalize_language_code(command.default_target_lang)
+        source_lang = self._normalize_language_code(
+            command.default_source_lang
+        )
+        target_lang = self._normalize_language_code(
+            command.default_target_lang
+        )
         self._validate(
             source_lang=source_lang,
             target_lang=target_lang,
             timezone=command.timezone,
         )
-        current = self.settings_repository.get(command.user_id) or default_settings(command.user_id)
+        current = self.settings_repository.get(command.user_id) or (
+            default_settings(command.user_id)
+        )
         settings = UserSettings(
             user_id=command.user_id,
             default_source_lang=source_lang,
             default_target_lang=target_lang,
-            default_translation_direction=command.default_translation_direction,
+            default_translation_direction=(
+                command.default_translation_direction
+            ),
             timezone=command.timezone,
             notification_time_local=command.notification_time_local,
             notifications_enabled=command.notifications_enabled,
@@ -359,7 +420,9 @@ class UpdateSettingsUseCase:
         timezone: str,
     ) -> None:
         if source_lang == target_lang:
-            raise InvalidSettingsError("Source and target languages must differ.")
+            raise InvalidSettingsError(
+                "Source and target languages must differ."
+            )
         if not LANGUAGE_CODE_PATTERN.fullmatch(source_lang):
             raise InvalidSettingsError("Source language code is invalid.")
         if not LANGUAGE_CODE_PATTERN.fullmatch(target_lang):
@@ -367,7 +430,9 @@ class UpdateSettingsUseCase:
         try:
             ZoneInfo(timezone)
         except ZoneInfoNotFoundError as error:
-            raise InvalidSettingsError("Timezone must be a valid IANA timezone.") from error
+            raise InvalidSettingsError(
+                "Timezone must be a valid IANA timezone."
+            ) from error
 
     @staticmethod
     def _normalize_language_code(language_code: str) -> str:
@@ -413,9 +478,13 @@ class StartQuizSessionUseCase:
             direction=first_review.direction,
         )
 
-    def _resume(self, session: TelegramQuizSession) -> QuizSessionPrompt | None:
+    def _resume(
+        self, session: TelegramQuizSession
+    ) -> QuizSessionPrompt | None:
         try:
-            card = load_user_card(self.phrase_repository, session.card_id, session.user_id)
+            card = load_user_card(
+                self.phrase_repository, session.card_id, session.user_id
+            )
         except CardNotFoundError:
             return None
         if card.learning_status is not LearningStatus.ACTIVE:
@@ -448,7 +517,9 @@ class SubmitActiveQuizAnswerUseCase:
     submit_review_answer_use_case: SubmitReviewAnswerUseCase
     start_quiz_session_use_case: StartQuizSessionUseCase
 
-    def execute(self, user_id: int, answer_text: str) -> ActiveQuizAnswerResult:
+    def execute(
+        self, user_id: int, answer_text: str
+    ) -> ActiveQuizAnswerResult:
         session = self.quiz_session_repository.get(user_id)
         if session is None:
             raise QuizSessionNotFoundError("No active quiz session was found.")

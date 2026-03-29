@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, Time, create_engine
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    Time,
+    create_engine,
+)
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    mapped_column,
+    relationship,
+    sessionmaker,
+)
 from sqlalchemy.pool import StaticPool
 
 
@@ -25,7 +41,9 @@ class PhraseCardRecord(Base):
     target_lang: Mapped[str] = mapped_column(String(16))
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True))
     learning_status: Mapped[str] = mapped_column(String(32))
-    archived_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    archived_reason: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
 
     review_tracks: Mapped[list["ReviewTrackRecord"]] = relationship(
         back_populates="card",
@@ -39,16 +57,26 @@ class ReviewTrackRecord(Base):
 
     __tablename__ = "review_tracks"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    card_id: Mapped[str] = mapped_column(ForeignKey("cards.id", ondelete="CASCADE"), index=True)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    card_id: Mapped[str] = mapped_column(
+        ForeignKey("cards.id", ondelete="CASCADE"), index=True
+    )
     direction: Mapped[str] = mapped_column(String(16))
     step_index: Mapped[int] = mapped_column(Integer)
-    next_review_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_review_at: Mapped[DateTime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     review_count: Mapped[int] = mapped_column(Integer, default=0)
     last_outcome: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    completed_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[DateTime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
-    card: Mapped[PhraseCardRecord] = relationship(back_populates="review_tracks")
+    card: Mapped[PhraseCardRecord] = relationship(
+        back_populates="review_tracks"
+    )
 
 
 class UserSettingsRecord(Base):
@@ -63,7 +91,9 @@ class UserSettingsRecord(Base):
     timezone: Mapped[str] = mapped_column(String(64))
     notification_time_local: Mapped[Time] = mapped_column(Time)
     notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    last_notification_local_date: Mapped[Date | None] = mapped_column(Date, nullable=True)
+    last_notification_local_date: Mapped[Date | None] = mapped_column(
+        Date, nullable=True
+    )
 
 
 class TelegramQuizSessionRecord(Base):
@@ -72,7 +102,9 @@ class TelegramQuizSessionRecord(Base):
     __tablename__ = "telegram_quiz_sessions"
 
     user_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    card_id: Mapped[str] = mapped_column(ForeignKey("cards.id", ondelete="CASCADE"))
+    card_id: Mapped[str] = mapped_column(
+        ForeignKey("cards.id", ondelete="CASCADE")
+    )
     direction: Mapped[str] = mapped_column(String(16))
     started_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True))
 
