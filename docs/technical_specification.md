@@ -129,6 +129,9 @@ interface rather than a content-heavy course platform.
    source text or the detected source language does not match the active pair.
 7. The Telegram translation card offers actions for reverse direction, quiz,
    settings, and learning control.
+8. Warning translations remain unsaved until the user explicitly confirms that
+   they should be kept.
+9. Exact duplicate cards are reused instead of creating additional entries.
 
 ### 6.2 History
 
@@ -184,6 +187,8 @@ interface rather than a content-heavy course platform.
 11. The user can end the session explicitly without resetting due cards.
 12. At session completion, the bot shows a summary with answered, correct,
     incorrect, and remaining due counts.
+13. The quiz session spreads different cards across the round when possible so
+    both directions of the same card are not asked back to back by default.
 
 ### 6.6 Notifications
 

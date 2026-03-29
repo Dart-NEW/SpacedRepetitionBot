@@ -11,6 +11,7 @@ import pytest
 
 try:
     from spaced_repetition_bot.application.dtos import (
+        GetHistoryQuery,
         QuizSessionPrompt,
         QuizSessionStartResult,
         QuizSessionSummary,
@@ -266,6 +267,65 @@ def test_telegram_quiz_and_settings_callbacks_drive_new_ux() -> None:
     assert "Pair: de -> it" in pair_input.answers[0].text
 
 
+def test_warning_translation_requires_explicit_keep_to_save() -> None:
+    dependencies = build_test_dependencies(
+        datetime(2026, 3, 28, 12, 0, tzinfo=timezone.utc)
+    )
+    dependencies["translator"].glossary[("smekh", "en", "es")] = "smekh"
+    use_cases = build_test_use_cases(dependencies)
+    container = ApplicationContainer(
+        config=AppConfig(
+            app_name="Telegram Test",
+            app_version="1.0.0",
+            api_prefix="/api/test",
+        ),
+        translate_phrase=use_cases["translate"],
+        get_history=use_cases["get_history"],
+        toggle_learning=use_cases["toggle"],
+        get_due_reviews=use_cases["due"],
+        start_quiz_session=use_cases["start_quiz"],
+        skip_quiz_session=use_cases["skip_quiz"],
+        end_quiz_session=use_cases["end_quiz"],
+        submit_active_quiz_answer=use_cases["submit_active_quiz"],
+        submit_review_answer=use_cases["answer"],
+        get_user_progress=use_cases["progress"],
+        get_settings=use_cases["get_settings"],
+        update_settings=use_cases["update_settings"],
+        settings_repository=dependencies["settings_repository"],
+        clock=dependencies["clock"],
+        reminder_service=NoOpReminderService(),
+    )
+    callbacks = handler_callbacks(container)
+    user = FakeUser(id=1)
+
+    translation_message = FakeMessage(from_user=user, text="smekh")
+    asyncio.run(
+        callbacks["message"]["handle_translation"](translation_message)
+    )
+
+    warning_card = translation_message.answers[0]
+    assert "Pair warning" in warning_card.text
+    assert "Learning: Not saved yet" in warning_card.text
+    assert (
+        container.get_history.execute(GetHistoryQuery(user_id=user.id)) == []
+    )
+
+    keep_callback = FakeCallbackQuery(
+        from_user=user,
+        message=warning_card,
+        data="translation:keep",
+    )
+    asyncio.run(callbacks["callback"]["handle_translation_keep"](
+        keep_callback
+    ))
+
+    assert len(warning_card.answers) == 1
+    assert "Learning: Active" in warning_card.answers[0].text
+    history = container.get_history.execute(GetHistoryQuery(user_id=user.id))
+    assert len(history) == 1
+    assert history[0].source_text == "smekh"
+
+
 def test_telegram_handlers_return_early_when_message_has_no_user_or_text() -> (
     None
 ):
@@ -419,6 +479,8 @@ def test_telegram_helper_parsers_and_formatters() -> None:
         detected_source_lang="ru",
         is_identity_translation=True,
         has_pair_warning=True,
+        saved=True,
+        already_saved=False,
         scheduled_reviews=(
             ScheduledReviewItem(
                 direction=ReviewDirection.FORWARD,

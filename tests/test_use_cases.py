@@ -256,6 +256,50 @@ def test_translate_uses_reverse_direction_from_settings() -> None:
     assert result.translated_text == "good luck"
 
 
+def test_translate_with_warning_does_not_save_without_confirmation() -> None:
+    now = datetime(2026, 3, 28, 12, 0, tzinfo=timezone.utc)
+    context = build_test_context(now)
+    context["translate"].translation_provider.glossary[
+        ("smekh", "en", "es")
+    ] = "smekh"
+
+    result = context["translate"].execute(
+        TranslatePhraseCommand(
+            user_id=1,
+            text="smekh",
+            save_with_warning=False,
+        )
+    )
+
+    assert result.card_id is None
+    assert result.learning_status is None
+    assert result.has_pair_warning is True
+    assert result.saved is False
+    assert context["phrase_repository"].list_by_user(1) == []
+
+
+def test_translate_reuses_existing_card() -> None:
+    now = datetime(2026, 3, 28, 12, 0, tzinfo=timezone.utc)
+    context = build_test_context(now)
+
+    first = context["translate"].execute(
+        TranslatePhraseCommand(
+            user_id=1,
+            text="good luck",
+        )
+    )
+    second = context["translate"].execute(
+        TranslatePhraseCommand(
+            user_id=1,
+            text="good luck",
+        )
+    )
+
+    assert second.card_id == first.card_id
+    assert second.already_saved is True
+    assert len(context["phrase_repository"].list_by_user(1)) == 1
+
+
 def test_correct_answer_advances_next_interval() -> None:
     now = datetime(2026, 3, 28, 12, 0, tzinfo=timezone.utc)
     context = build_test_context(now)
@@ -373,6 +417,33 @@ def test_quiz_session_resumes_and_moves_to_next_due_prompt() -> None:
     assert quiz_result.review_result.outcome is ReviewOutcome.CORRECT
     assert quiz_result.next_prompt is not None
     assert quiz_result.next_prompt.direction is ReviewDirection.REVERSE
+
+
+def test_quiz_session_mixes_cards_before_reverse_direction() -> None:
+    now = datetime(2026, 3, 28, 12, 0, tzinfo=timezone.utc)
+    context = build_test_context(now)
+    first = context["translate"].execute(
+        TranslatePhraseCommand(user_id=1, text="good luck")
+    )
+    second = context["translate"].translation_provider.glossary
+    second[("good day", "en", "es")] = "buen dia"
+    second[("buen dia", "es", "en")] = "good day"
+    next_card = context["translate"].execute(
+        TranslatePhraseCommand(user_id=1, text="good day")
+    )
+    context["clock"].current = now + timedelta(days=2)
+
+    start_result = context["start_quiz"].execute(user_id=1, activate=True)
+    quiz_result = context["submit_active_quiz"].execute(
+        user_id=1,
+        answer_text="buena suerte",
+    )
+
+    assert start_result is not None
+    assert start_result.prompt.card_id == first.card_id
+    assert quiz_result.next_prompt is not None
+    assert quiz_result.next_prompt.card_id == next_card.card_id
+    assert quiz_result.next_prompt.direction is ReviewDirection.FORWARD
 
 
 def test_skip_quiz_session_keeps_reviews_due() -> None:

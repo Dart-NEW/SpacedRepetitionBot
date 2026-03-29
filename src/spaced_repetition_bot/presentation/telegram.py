@@ -108,11 +108,19 @@ class PendingInputState:
     kind: str
 
 
+@dataclass(slots=True)
+class PendingTranslationPreview:
+    """Transient translation preview waiting for explicit confirmation."""
+
+    command: TranslatePhraseCommand
+
+
 def build_telegram_router(container: ApplicationContainer) -> Router:
     """Build the Telegram router with button-based UX."""
 
     router = Router(name="spaced-repetition-bot")
     pending_inputs: dict[int, PendingInputState] = {}
+    pending_previews: dict[int, PendingTranslationPreview] = {}
 
     @router.message(CommandStart())
     async def handle_start(message: Message) -> None:
@@ -134,6 +142,7 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
         if message.from_user is None:
             return
         pending_inputs.pop(message.from_user.id, None)
+        pending_previews.pop(message.from_user.id, None)
         await message.answer(
             "Settings input cancelled.",
             reply_markup=ReplyKeyboardRemove(),
@@ -416,6 +425,25 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
     async def handle_translation_reverse(callback: CallbackQuery) -> None:
         if callback.from_user is None or callback.message is None:
             return
+        preview = pending_previews.get(callback.from_user.id)
+        if preview is not None:
+            await callback.answer()
+            reversed_direction = _reverse_direction(
+                preview.command.direction or ReviewDirection.FORWARD
+            )
+            await _handle_translation_request(
+                container=container,
+                message=callback.message,
+                pending_previews=pending_previews,
+                command=TranslatePhraseCommand(
+                    user_id=callback.from_user.id,
+                    text=preview.command.text,
+                    direction=reversed_direction,
+                    learn=preview.command.learn,
+                    save_with_warning=False,
+                ),
+            )
+            return
         settings = container.get_settings.execute(
             GetSettingsQuery(user_id=callback.from_user.id)
         )
@@ -431,9 +459,25 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
 
     @router.callback_query(F.data == "translation:keep")
     async def handle_translation_keep(callback: CallbackQuery) -> None:
-        if callback.message is None:
+        if callback.from_user is None or callback.message is None:
             return
-        await callback.answer("Keeping the phrase in your current pair.")
+        preview = pending_previews.get(callback.from_user.id)
+        if preview is None:
+            await callback.answer("No pending phrase to save.")
+            return
+        await callback.answer()
+        await _handle_translation_request(
+            container=container,
+            message=callback.message,
+            pending_previews=pending_previews,
+            command=TranslatePhraseCommand(
+                user_id=preview.command.user_id,
+                text=preview.command.text,
+                direction=preview.command.direction,
+                learn=preview.command.learn,
+                save_with_warning=True,
+            ),
+        )
 
     @router.callback_query(F.data.startswith("card:pause:"))
     async def handle_pause_card(callback: CallbackQuery) -> None:
@@ -471,7 +515,11 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
             return
         if await _try_handle_quiz_answer(container, message):
             return
-        await _handle_translation_request(container, message)
+        await _handle_translation_request(
+            container=container,
+            message=message,
+            pending_previews=pending_previews,
+        )
 
     return router
 
@@ -583,11 +631,16 @@ def _format_translation_card(
         "",
         f"Pair: {result.source_lang} -> {result.target_lang}",
         f"Direction: {_format_direction(result.direction)}",
-        (
+    ]
+    if result.learning_status is None:
+        body_lines.append("Learning: Not saved yet")
+    else:
+        body_lines.append(
             "Learning: "
             f"{_format_learning_status(result.learning_status)}"
-        ),
-    ]
+        )
+    if result.already_saved:
+        body_lines.append("Status: Already in your deck")
     if due_reviews_total > 0:
         body_lines.append(f"Due now: {due_reviews_total}")
     return "\n".join(warning_lines + body_lines)
@@ -737,21 +790,11 @@ def _build_home_keyboard(
 
 def _build_translation_keyboard(
     *,
-    card_id: UUID,
-    learning_status: LearningStatus,
+    card_id: UUID | None,
+    learning_status: LearningStatus | None,
     has_due_reviews: bool,
     show_warning_actions: bool,
 ) -> InlineKeyboardMarkup:
-    toggle_text = (
-        "Restore"
-        if learning_status is LearningStatus.NOT_LEARNING
-        else "Pause learning"
-    )
-    toggle_prefix = (
-        "card:restore:"
-        if learning_status is LearningStatus.NOT_LEARNING
-        else "card:pause:"
-    )
     keyboard: list[list[InlineKeyboardButton]] = [
         [
             InlineKeyboardButton(
@@ -773,19 +816,41 @@ def _build_translation_keyboard(
                 ),
             ),
         ],
-        [
-            InlineKeyboardButton(
-                text=toggle_text,
-                callback_data=f"{toggle_prefix}{card_id}",
-            ),
-        ],
     ]
-    if has_due_reviews:
-        keyboard[1].append(
-            InlineKeyboardButton(
-                text="Quiz now",
-                callback_data="quiz:continue",
+    if card_id is not None and learning_status is not None:
+        toggle_text = (
+            "Restore"
+            if learning_status is LearningStatus.NOT_LEARNING
+            else "Pause learning"
+        )
+        toggle_prefix = (
+            "card:restore:"
+            if learning_status is LearningStatus.NOT_LEARNING
+            else "card:pause:"
+        )
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=toggle_text,
+                    callback_data=f"{toggle_prefix}{card_id}",
+                )
+            ]
+        )
+        if has_due_reviews:
+            keyboard[-1].append(
+                InlineKeyboardButton(
+                    text="Quiz now",
+                    callback_data="quiz:continue",
+                )
             )
+    elif has_due_reviews:
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text="Quiz now",
+                    callback_data="quiz:continue",
+                )
+            ]
         )
     if show_warning_actions:
         keyboard.append(
@@ -1463,16 +1528,20 @@ async def _send_session_summary(
 async def _handle_translation_request(
     container: ApplicationContainer,
     message: Message,
+    pending_previews: dict[int, PendingTranslationPreview],
+    command: TranslatePhraseCommand | None = None,
 ) -> None:
     if message.from_user is None or message.text is None:
         return
+    active_command = command or TranslatePhraseCommand(
+        user_id=message.from_user.id,
+        text=message.text,
+        save_with_warning=False,
+    )
     try:
         result = await asyncio.to_thread(
             container.translate_phrase.execute,
-            TranslatePhraseCommand(
-                user_id=message.from_user.id,
-                text=message.text,
-            ),
+            active_command,
         )
     except TranslationProviderError:
         await message.answer("Translation provider is unavailable right now.")
@@ -1480,6 +1549,18 @@ async def _handle_translation_request(
     except ApplicationError as error:
         await message.answer(str(error))
         return
+    if result.saved:
+        pending_previews.pop(message.from_user.id, None)
+    elif result.has_pair_warning:
+        pending_previews[message.from_user.id] = PendingTranslationPreview(
+            command=TranslatePhraseCommand(
+                user_id=active_command.user_id,
+                text=active_command.text,
+                direction=result.direction,
+                learn=active_command.learn,
+                save_with_warning=False,
+            )
+        )
     due_reviews = container.get_due_reviews.execute(message.from_user.id)
     await message.answer(
         _format_translation_card(
@@ -1490,7 +1571,7 @@ async def _handle_translation_request(
             card_id=result.card_id,
             learning_status=result.learning_status,
             has_due_reviews=bool(due_reviews),
-            show_warning_actions=result.has_pair_warning,
+            show_warning_actions=result.has_pair_warning and not result.saved,
         ),
     )
 

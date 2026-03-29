@@ -187,6 +187,7 @@ and quiz progress are shared across user devices.
 In Telegram, the default happy path is chat-first:
 
 - plain text creates a translation card
+- suspicious translations stay unsaved until the user confirms `Keep anyway`
 - inline buttons open settings, pause or restore cards, and launch quizzes
 - `/quiz` opens a short review session with `Start quiz`, `Skip card`, and
   `End session`
@@ -239,6 +240,8 @@ Plain text behavior:
 - an incorrect answer resets the track to the beginning
 - skipping a quiz leaves the card due
 - cards marked as `not_learning` stay in history and can be restored
+- exact duplicate cards are reused instead of being created again
+- quiz sessions spread the same card directions apart when possible
 - `/history` shows short card ids for quick pause and restore commands
 
 ## HTTP API

@@ -129,6 +129,30 @@ def build_quiz_prompt(
     )
 
 
+def find_existing_translation_card(
+    phrase_repository: PhraseRepository,
+    *,
+    user_id: int,
+    source_text: str,
+    translated_text: str,
+    source_lang: str,
+    target_lang: str,
+) -> PhraseCard | None:
+    """Return an existing matching card for a user if present."""
+
+    normalized_source = normalize_text(source_text)
+    normalized_target = normalize_text(translated_text)
+    for card in phrase_repository.list_by_user(user_id):
+        if (
+            card.source_lang == source_lang
+            and card.target_lang == target_lang
+            and normalize_text(card.source_text) == normalized_source
+            and normalize_text(card.target_text) == normalized_target
+        ):
+            return card
+    return None
+
+
 def list_due_reviews(
     phrase_repository: PhraseRepository,
     user_id: int,
@@ -137,6 +161,30 @@ def list_due_reviews(
     """Return sorted due reviews for a user."""
 
     return phrase_repository.list_due_reviews(user_id=user_id, now=now)
+
+
+def mix_due_reviews(due_reviews: list[DueReviewItem]) -> list[DueReviewItem]:
+    """Spread reviews from the same card apart when possible."""
+
+    grouped_reviews: dict[str, list[DueReviewItem]] = {}
+    card_order: list[str] = []
+    for item in due_reviews:
+        card_key = str(item.card_id)
+        if card_key not in grouped_reviews:
+            grouped_reviews[card_key] = []
+            card_order.append(card_key)
+        grouped_reviews[card_key].append(item)
+    mixed: list[DueReviewItem] = []
+    while True:
+        round_items = 0
+        for card_key in card_order:
+            reviews = grouped_reviews[card_key]
+            if not reviews:
+                continue
+            mixed.append(reviews.pop(0))
+            round_items += 1
+        if round_items == 0:
+            return mixed
 
 
 def load_user_card(
@@ -207,6 +255,36 @@ class TranslatePhraseUseCase:
             detected_source_lang is not None
             and detected_source_lang != normalize_language_code(source_lang)
         )
+        if has_pair_warning and not command.save_with_warning:
+            return self._build_preview_result(
+                command=command,
+                translated_text=translated.translated_text,
+                direction=direction,
+                source_lang=source_lang,
+                target_lang=target_lang,
+                provider_name=translated.provider_name,
+                detected_source_lang=detected_source_lang,
+                is_identity_translation=is_identity_translation,
+                has_pair_warning=has_pair_warning,
+            )
+        existing_card = find_existing_translation_card(
+            self.phrase_repository,
+            user_id=command.user_id,
+            source_text=command.text,
+            translated_text=translated.translated_text,
+            source_lang=source_lang,
+            target_lang=target_lang,
+        )
+        if existing_card is not None:
+            return self._build_saved_result(
+                card=existing_card,
+                direction=direction,
+                provider_name=translated.provider_name,
+                detected_source_lang=detected_source_lang,
+                is_identity_translation=is_identity_translation,
+                has_pair_warning=has_pair_warning,
+                already_saved=True,
+            )
         now = self.clock.now()
         tracks = self.spaced_repetition_policy.initialize_tracks(now)
         learning_status = (
@@ -229,21 +307,73 @@ class TranslatePhraseUseCase:
             ),
         )
         stored_card = self.phrase_repository.add(card)
-        return TranslationResult(
-            card_id=stored_card.id,
-            source_text=stored_card.source_text,
-            translated_text=stored_card.target_text,
+        return self._build_saved_result(
+            card=stored_card,
             direction=direction,
-            source_lang=stored_card.source_lang,
-            target_lang=stored_card.target_lang,
-            learning_status=stored_card.learning_status,
             provider_name=translated.provider_name,
             detected_source_lang=detected_source_lang,
             is_identity_translation=is_identity_translation,
             has_pair_warning=has_pair_warning,
+            already_saved=False,
+        )
+
+    def _build_preview_result(
+        self,
+        *,
+        command: TranslatePhraseCommand,
+        translated_text: str,
+        direction: ReviewDirection,
+        source_lang: str,
+        target_lang: str,
+        provider_name: str,
+        detected_source_lang: str | None,
+        is_identity_translation: bool,
+        has_pair_warning: bool,
+    ) -> TranslationResult:
+        return TranslationResult(
+            card_id=None,
+            source_text=command.text,
+            translated_text=translated_text,
+            direction=direction,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            learning_status=None,
+            provider_name=provider_name,
+            detected_source_lang=detected_source_lang,
+            is_identity_translation=is_identity_translation,
+            has_pair_warning=has_pair_warning,
+            saved=False,
+            already_saved=False,
+            scheduled_reviews=(),
+        )
+
+    def _build_saved_result(
+        self,
+        *,
+        card: PhraseCard,
+        direction: ReviewDirection,
+        provider_name: str,
+        detected_source_lang: str | None,
+        is_identity_translation: bool,
+        has_pair_warning: bool,
+        already_saved: bool,
+    ) -> TranslationResult:
+        return TranslationResult(
+            card_id=card.id,
+            source_text=card.source_text,
+            translated_text=card.target_text,
+            direction=direction,
+            source_lang=card.source_lang,
+            target_lang=card.target_lang,
+            learning_status=card.learning_status,
+            provider_name=provider_name,
+            detected_source_lang=detected_source_lang,
+            is_identity_translation=is_identity_translation,
+            has_pair_warning=has_pair_warning,
+            saved=True,
+            already_saved=already_saved,
             scheduled_reviews=tuple(
-                map_scheduled_review(track)
-                for track in stored_card.review_tracks
+                map_scheduled_review(track) for track in card.review_tracks
             ),
         )
 
@@ -471,10 +601,12 @@ class StartQuizSessionUseCase:
                 )
                 return self._build_start_result(session)
             self.quiz_session_repository.delete(user_id)
-        due_reviews = list_due_reviews(
-            phrase_repository=self.phrase_repository,
-            user_id=user_id,
-            now=self.clock.now(),
+        due_reviews = mix_due_reviews(
+            list_due_reviews(
+                phrase_repository=self.phrase_repository,
+                user_id=user_id,
+                now=self.clock.now(),
+            )
         )
         if not due_reviews:
             return None
