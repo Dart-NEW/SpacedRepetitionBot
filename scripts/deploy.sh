@@ -10,6 +10,7 @@ DEFAULT_API_PREFIX="/api/v1"
 DEFAULT_SQLITE_URL="sqlite:///./spaced_repetition_bot.db"
 DEFAULT_PORT="8000"
 GET_PIP_URL="https://bootstrap.pypa.io/get-pip.py"
+USER_PIP_FLAGS=(--user --break-system-packages)
 
 read_env_value() {
     local key="$1"
@@ -100,7 +101,7 @@ bootstrap_user_pip() {
     local get_pip_script
     get_pip_script="$(mktemp)"
     curl -fsSL "${GET_PIP_URL}" -o "${get_pip_script}"
-    python3 "${get_pip_script}" --user
+    python3 "${get_pip_script}" "${USER_PIP_FLAGS[@]}"
     rm -f "${get_pip_script}"
 }
 
@@ -112,8 +113,8 @@ install_runtime() {
     fi
 
     bootstrap_user_pip
-    python3 -m pip install --user --upgrade pip
-    python3 -m pip install --user .
+    python3 -m pip install "${USER_PIP_FLAGS[@]}" --upgrade pip
+    python3 -m pip install "${USER_PIP_FLAGS[@]}" .
 }
 
 cd "${APP_DIR}"
