@@ -106,7 +106,8 @@ bootstrap_user_pip() {
 }
 
 install_runtime() {
-    if [[ -x "${APP_DIR}/.venv/bin/python" ]]; then
+    if [[ -x "${APP_DIR}/.venv/bin/python" ]] && \
+        "${APP_DIR}/.venv/bin/python" -m pip --version >/dev/null 2>&1; then
         "${APP_DIR}/.venv/bin/python" -m pip install --upgrade pip
         "${APP_DIR}/.venv/bin/python" -m pip install .
         return 0

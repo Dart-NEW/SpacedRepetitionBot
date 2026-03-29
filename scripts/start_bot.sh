@@ -8,7 +8,8 @@ LOG_DIR="${APP_DIR}/logs"
 PID_FILE="${RUN_DIR}/bot.pid"
 
 resolve_python() {
-    if [[ -x "${APP_DIR}/.venv/bin/python" ]]; then
+    if [[ -x "${APP_DIR}/.venv/bin/python" ]] && \
+        "${APP_DIR}/.venv/bin/python" -m pip --version >/dev/null 2>&1; then
         printf '%s\n' "${APP_DIR}/.venv/bin/python"
         return 0
     fi

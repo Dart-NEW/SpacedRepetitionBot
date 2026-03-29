@@ -10,7 +10,8 @@ HOST="${SRB_UVICORN_HOST:-127.0.0.1}"
 PORT="${SRB_UVICORN_PORT:-8000}"
 
 resolve_python() {
-    if [[ -x "${APP_DIR}/.venv/bin/python" ]]; then
+    if [[ -x "${APP_DIR}/.venv/bin/python" ]] && \
+        "${APP_DIR}/.venv/bin/python" -m pip --version >/dev/null 2>&1; then
         printf '%s\n' "${APP_DIR}/.venv/bin/python"
         return 0
     fi
