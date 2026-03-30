@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
-from typing import Protocol
+from typing import Literal, Protocol
 
 from spaced_repetition_bot.domain.enums import (
     ReviewDirection,
@@ -34,7 +34,16 @@ class SpacedRepetitionPolicy(Protocol):
 class FixedIntervalSpacedRepetitionPolicy:
     """Fixed schedule that matches the assignment requirements."""
 
-    intervals_days: tuple[int, ...] = (2, 3, 5, 7)
+    intervals: tuple[int, ...] = (2, 3, 5, 7)
+    interval_unit: Literal["days", "minutes"] = "days"
+
+    def __post_init__(self) -> None:
+        """Validate the configured schedule."""
+
+        if not self.intervals:
+            raise ValueError("Review intervals must not be empty.")
+        if any(interval <= 0 for interval in self.intervals):
+            raise ValueError("Review intervals must be positive.")
 
     def initialize_tracks(
         self, now: datetime
@@ -78,10 +87,10 @@ class FixedIntervalSpacedRepetitionPolicy:
         outcome: ReviewOutcome,
     ) -> ReviewTrack:
         next_step_index = track.step_index + 1
-        if next_step_index >= len(self.intervals_days):
+        if next_step_index >= len(self.intervals):
             return replace(
                 track,
-                step_index=len(self.intervals_days),
+                step_index=len(self.intervals),
                 next_review_at=None,
                 review_count=track.review_count + 1,
                 last_outcome=outcome,
@@ -97,4 +106,7 @@ class FixedIntervalSpacedRepetitionPolicy:
         )
 
     def _interval_delta(self, step_index: int) -> timedelta:
-        return timedelta(days=self.intervals_days[step_index])
+        interval_value = self.intervals[step_index]
+        if self.interval_unit == "minutes":
+            return timedelta(minutes=interval_value)
+        return timedelta(days=interval_value)

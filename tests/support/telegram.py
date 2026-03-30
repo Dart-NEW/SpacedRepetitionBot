@@ -23,7 +23,7 @@ class FakeMessage:
     text: str | None = None
     answers: list[str] = field(default_factory=list)
 
-    async def answer(self, text: str) -> None:
+    async def answer(self, text: str, **_kwargs) -> None:
         self.answers.append(text)
 
 
@@ -34,7 +34,7 @@ class FakeBot:
     sent_messages: list[tuple[int, str]] = field(default_factory=list)
     raise_on_send: bool = False
 
-    async def send_message(self, user_id: int, text: str) -> None:
+    async def send_message(self, user_id: int, text: str, **_kwargs) -> None:
         if self.raise_on_send:
             raise RuntimeError("simulated bot failure")
         self.sent_messages.append((user_id, text))

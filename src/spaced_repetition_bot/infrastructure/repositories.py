@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import json
+from threading import Lock
 from uuid import UUID
 
 from sqlalchemy import and_, case, func, select
@@ -22,6 +25,7 @@ from spaced_repetition_bot.domain.enums import (
 )
 from spaced_repetition_bot.domain.models import (
     PhraseCard,
+    QuizReviewPointer,
     ReviewTrack,
     TelegramQuizSession,
     UserSettings,
@@ -33,6 +37,18 @@ from spaced_repetition_bot.infrastructure.database import (
     UserSettingsRecord,
 )
 
+SQLITE_WRITE_LOCK = Lock()
+NORMALIZED_MATCH_DASHES = (
+    "-",
+    "_",
+    "\u2010",
+    "\u2011",
+    "\u2012",
+    "\u2013",
+    "\u2014",
+    "\u2212",
+)
+
 
 def _normalize_datetime(value: datetime | None) -> datetime | None:
     if value is None:
@@ -40,6 +56,53 @@ def _normalize_datetime(value: datetime | None) -> datetime | None:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _normalize_match_text(value: str) -> str:
+    normalized = value
+    for dash in NORMALIZED_MATCH_DASHES:
+        normalized = normalized.replace(dash, " ")
+    return " ".join(normalized.strip().casefold().split())
+
+
+def _needs_normalized_fallback(value: str) -> bool:
+    return _normalize_match_text(value) != value.strip().casefold()
+
+
+def _sqlite_write_lock_for(session):
+    bind = session.get_bind()
+    if bind is None or bind.dialect.name != "sqlite":
+        return nullcontext()
+    return SQLITE_WRITE_LOCK
+
+
+def _serialize_pending_reviews(
+    pending_reviews: tuple[QuizReviewPointer, ...],
+) -> str:
+    return json.dumps(
+        [
+            {
+                "card_id": str(item.card_id),
+                "direction": item.direction.value,
+            }
+            for item in pending_reviews
+        ]
+    )
+
+
+def _deserialize_pending_reviews(raw_value: str | None) -> (
+    tuple[QuizReviewPointer, ...]
+):
+    if not raw_value:
+        return ()
+    items = json.loads(raw_value)
+    return tuple(
+        QuizReviewPointer(
+            card_id=UUID(item["card_id"]),
+            direction=ReviewDirection(item["direction"]),
+        )
+        for item in items
+    )
 
 
 @dataclass(slots=True)
@@ -63,6 +126,32 @@ class InMemoryPhraseRepository:
         return [
             card for card in self._cards.values() if card.user_id == user_id
         ]
+
+    def find_matching_card(
+        self,
+        *,
+        user_id: int,
+        source_text: str,
+        translated_text: str,
+        source_lang: str,
+        target_lang: str,
+    ) -> PhraseCard | None:
+        normalized_source = _normalize_match_text(source_text).split()
+        normalized_target = _normalize_match_text(translated_text).split()
+        for card in self.list_by_user(user_id):
+            if (
+                card.source_lang != source_lang
+                or card.target_lang != target_lang
+            ):
+                continue
+            current_source = _normalize_match_text(card.source_text).split()
+            current_target = _normalize_match_text(card.target_text).split()
+            if (
+                current_source == normalized_source
+                and current_target == normalized_target
+            ):
+                return card
+        return None
 
     def list_history_by_user(
         self, user_id: int, limit: int
@@ -235,6 +324,16 @@ def _record_to_quiz_session(
         card_id=UUID(record.card_id),
         direction=ReviewDirection(record.direction),
         started_at=_normalize_datetime(record.started_at),
+        pending_reviews=_deserialize_pending_reviews(
+            record.pending_reviews_json
+        ),
+        total_prompts=record.total_prompts,
+        due_reviews_total=record.due_reviews_total,
+        answered_prompts=record.answered_prompts,
+        correct_prompts=record.correct_prompts,
+        incorrect_prompts=record.incorrect_prompts,
+        awaiting_start=record.awaiting_start,
+        message_id=record.message_id,
     )
 
 
@@ -293,25 +392,27 @@ class SqlAlchemyPhraseRepository:
 
     def add(self, card: PhraseCard) -> PhraseCard:
         with self.session_factory() as session:
-            record = PhraseCardRecord(id=str(card.id))
-            _apply_card(record, card)
-            session.add(record)
-            session.commit()
-            return self._get_committed(session, card.id)
+            with _sqlite_write_lock_for(session):
+                record = PhraseCardRecord(id=str(card.id))
+                _apply_card(record, card)
+                session.add(record)
+                session.commit()
+            return card
 
     def save(self, card: PhraseCard) -> PhraseCard:
         with self.session_factory() as session:
-            record = session.execute(
-                select(PhraseCardRecord)
-                .options(selectinload(PhraseCardRecord.review_tracks))
-                .where(PhraseCardRecord.id == str(card.id))
-            ).scalar_one_or_none()
-            if record is None:
-                record = PhraseCardRecord(id=str(card.id))
-                session.add(record)
-            _apply_card(record, card)
-            session.commit()
-            return self._get_committed(session, card.id)
+            with _sqlite_write_lock_for(session):
+                record = session.execute(
+                    select(PhraseCardRecord)
+                    .options(selectinload(PhraseCardRecord.review_tracks))
+                    .where(PhraseCardRecord.id == str(card.id))
+                ).scalar_one_or_none()
+                if record is None:
+                    record = PhraseCardRecord(id=str(card.id))
+                    session.add(record)
+                _apply_card(record, card)
+                session.commit()
+            return card
 
     def get(self, card_id: UUID) -> PhraseCard | None:
         with self.session_factory() as session:
@@ -332,6 +433,47 @@ class SqlAlchemyPhraseRepository:
                 .where(PhraseCardRecord.user_id == user_id)
             ).scalars()
             return [_record_to_card(record) for record in records]
+
+    def find_matching_card(
+        self,
+        *,
+        user_id: int,
+        source_text: str,
+        translated_text: str,
+        source_lang: str,
+        target_lang: str,
+    ) -> PhraseCard | None:
+        normalized_source = source_text.strip().casefold()
+        normalized_target = translated_text.strip().casefold()
+        with self.session_factory() as session:
+            record = session.execute(
+                select(PhraseCardRecord)
+                .options(selectinload(PhraseCardRecord.review_tracks))
+                .where(
+                    PhraseCardRecord.user_id == user_id,
+                    PhraseCardRecord.source_lang == source_lang,
+                    PhraseCardRecord.target_lang == target_lang,
+                    func.lower(func.trim(PhraseCardRecord.source_text))
+                    == normalized_source,
+                    func.lower(func.trim(PhraseCardRecord.target_text))
+                    == normalized_target,
+                )
+                .limit(1)
+            ).scalar_one_or_none()
+            if record is not None:
+                return _record_to_card(record)
+        if not (
+            _needs_normalized_fallback(source_text)
+            or _needs_normalized_fallback(translated_text)
+        ):
+            return None
+        return self._find_matching_card_fallback(
+            user_id=user_id,
+            source_text=source_text,
+            translated_text=translated_text,
+            source_lang=source_lang,
+            target_lang=target_lang,
+        )
 
     def list_history_by_user(
         self, user_id: int, limit: int
@@ -471,13 +613,31 @@ class SqlAlchemyPhraseRepository:
             total_review_tracks=track_row[0] or 0,
         )
 
-    def _get_committed(self, session, card_id: UUID) -> PhraseCard:
-        record = session.execute(
-            select(PhraseCardRecord)
-            .options(selectinload(PhraseCardRecord.review_tracks))
-            .where(PhraseCardRecord.id == str(card_id))
-        ).scalar_one()
-        return _record_to_card(record)
+    def _find_matching_card_fallback(
+        self,
+        *,
+        user_id: int,
+        source_text: str,
+        translated_text: str,
+        source_lang: str,
+        target_lang: str,
+    ) -> PhraseCard | None:
+        normalized_source = _normalize_match_text(source_text).split()
+        normalized_target = _normalize_match_text(translated_text).split()
+        for card in self.list_by_user(user_id):
+            if (
+                card.source_lang != source_lang
+                or card.target_lang != target_lang
+            ):
+                continue
+            current_source = _normalize_match_text(card.source_text).split()
+            current_target = _normalize_match_text(card.target_text).split()
+            if (
+                current_source == normalized_source
+                and current_target == normalized_target
+            ):
+                return card
+        return None
 
 
 @dataclass(slots=True)
@@ -495,20 +655,21 @@ class SqlAlchemySettingsRepository:
 
     def save(self, settings: UserSettings) -> UserSettings:
         with self.session_factory() as session:
-            record = session.get(UserSettingsRecord, settings.user_id)
-            if record is None:
-                record = UserSettingsRecord(user_id=settings.user_id)
-                session.add(record)
-            _apply_settings(record, settings)
-            try:
-                session.commit()
-            except IntegrityError:
-                session.rollback()
+            with _sqlite_write_lock_for(session):
                 record = session.get(UserSettingsRecord, settings.user_id)
                 if record is None:
-                    raise
+                    record = UserSettingsRecord(user_id=settings.user_id)
+                    session.add(record)
                 _apply_settings(record, settings)
-                session.commit()
+                try:
+                    session.commit()
+                except IntegrityError:
+                    session.rollback()
+                    record = session.get(UserSettingsRecord, settings.user_id)
+                    if record is None:
+                        raise
+                    _apply_settings(record, settings)
+                    session.commit()
             return _record_to_settings(record)
 
     def list_all(self) -> list[UserSettings]:
@@ -532,23 +693,37 @@ class SqlAlchemyQuizSessionRepository:
 
     def save(self, quiz_session: TelegramQuizSession) -> TelegramQuizSession:
         with self.session_factory() as session:
-            record = session.get(
-                TelegramQuizSessionRecord, quiz_session.user_id
-            )
-            if record is None:
-                record = TelegramQuizSessionRecord(
-                    user_id=quiz_session.user_id
+            with _sqlite_write_lock_for(session):
+                record = session.get(
+                    TelegramQuizSessionRecord, quiz_session.user_id
                 )
-                session.add(record)
-            record.card_id = str(quiz_session.card_id)
-            record.direction = quiz_session.direction.value
-            record.started_at = _normalize_datetime(quiz_session.started_at)
-            session.commit()
+                if record is None:
+                    record = TelegramQuizSessionRecord(
+                        user_id=quiz_session.user_id
+                    )
+                    session.add(record)
+                record.card_id = str(quiz_session.card_id)
+                record.direction = quiz_session.direction.value
+                record.started_at = _normalize_datetime(
+                    quiz_session.started_at
+                )
+                record.pending_reviews_json = _serialize_pending_reviews(
+                    quiz_session.pending_reviews
+                )
+                record.total_prompts = quiz_session.total_prompts
+                record.due_reviews_total = quiz_session.due_reviews_total
+                record.answered_prompts = quiz_session.answered_prompts
+                record.correct_prompts = quiz_session.correct_prompts
+                record.incorrect_prompts = quiz_session.incorrect_prompts
+                record.awaiting_start = quiz_session.awaiting_start
+                record.message_id = quiz_session.message_id
+                session.commit()
             return _record_to_quiz_session(record)
 
     def delete(self, user_id: int) -> None:
         with self.session_factory() as session:
-            record = session.get(TelegramQuizSessionRecord, user_id)
-            if record is not None:
-                session.delete(record)
-                session.commit()
+            with _sqlite_write_lock_for(session):
+                record = session.get(TelegramQuizSessionRecord, user_id)
+                if record is not None:
+                    session.delete(record)
+                    session.commit()

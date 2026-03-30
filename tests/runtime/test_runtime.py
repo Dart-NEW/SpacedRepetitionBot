@@ -163,6 +163,11 @@ def test_run_telegram_bot_starts_polling_and_cancels_reminders(
         lambda _container: object(),
     )
     monkeypatch.setattr(
+        run_telegram_bot,
+        "configure_telegram_bot_ui",
+        lambda _bot: asyncio.sleep(0),
+    )
+    monkeypatch.setattr(
         type(container.reminder_service),
         "run",
         fake_reminder_run,

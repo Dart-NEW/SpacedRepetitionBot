@@ -411,22 +411,30 @@ def test_quiz_session_start_resume_skip_and_submit_flow(
     )
     fixed_clock.current = fixed_now + timedelta(days=2)
 
-    first_prompt = test_use_cases["start_quiz_session"].execute(user_id=1)
-    resumed_prompt = test_use_cases["start_quiz_session"].execute(user_id=1)
+    first_prompt = test_use_cases["start_quiz_session"].execute(
+        user_id=1, activate=True
+    )
+    resumed_prompt = test_use_cases["start_quiz_session"].execute(
+        user_id=1, activate=True
+    )
     skipped = test_use_cases["skip_quiz_session"].execute(user_id=1)
-    restarted_prompt = test_use_cases["start_quiz_session"].execute(user_id=1)
+    restarted_prompt = test_use_cases["start_quiz_session"].execute(
+        user_id=1, activate=True
+    )
     answered = test_use_cases["submit_active_quiz_answer"].execute(
         user_id=1,
-        answer_text="buena suerte",
+        answer_text="good luck",
     )
 
-    assert first_prompt.card_id == translated.card_id
-    assert resumed_prompt.card_id == translated.card_id
-    assert skipped is True
-    assert restarted_prompt.card_id == translated.card_id
+    assert first_prompt.prompt.card_id == translated.card_id
+    assert resumed_prompt.prompt.card_id == translated.card_id
+    assert skipped is not None
+    assert skipped.session_summary is None
+    assert skipped.next_prompt is not None
+    assert restarted_prompt.prompt.card_id == translated.card_id
     assert answered.review_result.outcome is ReviewOutcome.CORRECT
-    assert answered.next_prompt is not None
-    assert answered.next_prompt.direction is ReviewDirection.REVERSE
+    assert answered.next_prompt is None
+    assert answered.session_summary is not None
 
 
 def test_quiz_session_handles_missing_and_stale_sessions(

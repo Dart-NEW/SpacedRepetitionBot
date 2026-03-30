@@ -116,6 +116,18 @@ class TranslationResponse(BaseModel):
     provider_name: str = Field(
         description="Translation provider name.", examples=["mock"]
     )
+    detected_source_lang: str | None = Field(
+        description="Detected source language from the provider.",
+        examples=["en"],
+    )
+    is_identity_translation: bool = Field(
+        description="Whether the translation matched the input text.",
+        examples=[False],
+    )
+    has_pair_warning: bool = Field(
+        description="Whether the phrase may not match the active pair.",
+        examples=[False],
+    )
     scheduled_reviews: list[ScheduledReviewResponse] = Field(
         description="Review schedule for both directions."
     )
@@ -366,6 +378,9 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
                             "target_lang": "es",
                             "learning_status": "active",
                             "provider_name": "mock",
+                            "detected_source_lang": "en",
+                            "is_identity_translation": False,
+                            "has_pair_warning": False,
                             "scheduled_reviews": [
                                 {
                                     "direction": "forward",
@@ -419,6 +434,9 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
             target_lang=result.target_lang,
             learning_status=result.learning_status,
             provider_name=result.provider_name,
+            detected_source_lang=result.detected_source_lang,
+            is_identity_translation=result.is_identity_translation,
+            has_pair_warning=result.has_pair_warning,
             scheduled_reviews=[
                 ScheduledReviewResponse.model_validate(
                     item, from_attributes=True
