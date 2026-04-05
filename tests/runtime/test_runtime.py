@@ -49,9 +49,15 @@ def test_system_clock_returns_timezone_aware_utc_datetime() -> None:
 
 
 def test_build_translation_provider_covers_mock_yandex_and_missing_config(
+    monkeypatch,
 ) -> None:
+    monkeypatch.delenv("SRB_YANDEX_TRANSLATE_API_KEY", raising=False)
+    monkeypatch.delenv("SRB_YANDEX_FOLDER_ID", raising=False)
+
     assert isinstance(
-        build_translation_provider(AppConfig(translation_provider="mock")),
+        build_translation_provider(
+            AppConfig(translation_provider="mock", _env_file=None)
+        ),
         MockTranslationProvider,
     )
     with pytest.raises(ValueError, match="SRB_YANDEX_TRANSLATE_API_KEY"):
@@ -59,6 +65,7 @@ def test_build_translation_provider_covers_mock_yandex_and_missing_config(
             AppConfig(
                 translation_provider="yandex",
                 yandex_folder_id="folder",
+                _env_file=None,
             )
         )
     with pytest.raises(ValueError, match="SRB_YANDEX_FOLDER_ID"):
@@ -66,6 +73,7 @@ def test_build_translation_provider_covers_mock_yandex_and_missing_config(
             AppConfig(
                 translation_provider="yandex",
                 yandex_translate_api_key="key",
+                _env_file=None,
             )
         )
 
@@ -74,6 +82,7 @@ def test_build_translation_provider_covers_mock_yandex_and_missing_config(
             translation_provider="yandex",
             yandex_translate_api_key="key",
             yandex_folder_id="folder",
+            _env_file=None,
         )
     )
 
