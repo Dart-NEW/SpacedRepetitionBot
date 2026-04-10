@@ -40,6 +40,25 @@ packages = ["src/spaced_repetition_bot"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+addopts = [
+  "-ra",
+  "--strict-markers",
+  "--strict-config",
+  "--cov=src/spaced_repetition_bot",
+  "--cov-report=term-missing",
+  "--cov-fail-under=90"
+]
+xfail_strict = true
+filterwarnings = [
+  "error",
+  "ignore::DeprecationWarning:httpx.*",
+]
+markers = [
+  "unit: fast isolated business-logic tests",
+  "integration: repository, wiring, and adapter integration tests",
+  "contract: public API and Telegram contract tests",
+  "slow: non-functional smoke tests"
+]
 
 [tool.flake8]
 max-line-length = 79

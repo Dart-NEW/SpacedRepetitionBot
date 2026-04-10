@@ -1,5 +1,27 @@
 """Composition root for the application."""
 
+# Wiring overview:
+# - `build_container` is the single composition root for the application.
+# - Configuration is resolved once and then threaded through dependencies.
+# - Infrastructure adapters are created before application use cases.
+# - Domain policies are shared across the use cases that need them.
+# - The translation provider is selected from configuration, not callers.
+# - Database initialization happens before repositories are exposed.
+# - The same repositories back both HTTP and Telegram entrypoints.
+# - That keeps state consistent across interfaces and restarts.
+# - Reminder delivery receives only the ports it needs.
+# - The container stores concrete use-case instances for simple runtime use.
+# - This module intentionally contains no business rules.
+# - Its job is to connect policy, storage, and presentation boundaries.
+# - Tests import this module to confirm runtime wiring assumptions.
+# - Keeping construction explicit is more maintainable than hidden globals.
+# - New infrastructure integrations should be registered here first.
+# - New use cases should receive only the dependencies they actually use.
+# - Provider selection errors fail fast during startup.
+# - That is preferable to late runtime failures in handlers.
+# - The dataclass container keeps the resulting graph easy to inspect.
+# - This file remains the best place to understand whole-app assembly.
+
 from __future__ import annotations
 
 from dataclasses import dataclass
