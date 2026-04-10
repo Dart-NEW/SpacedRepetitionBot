@@ -1,5 +1,27 @@
 """Telegram reminder delivery."""
 
+# Reminder flow:
+# - This service runs inside the Telegram bot process.
+# - It polls persisted user settings on a fixed interval.
+# - Each iteration evaluates reminder eligibility for every stored user.
+# - Eligibility depends on timezone, local reminder time, and enable state.
+# - A reminder is sent only when due reviews currently exist.
+# - `last_notification_local_date` enforces at most one reminder per day.
+# - Invalid timezones are ignored so one bad record does not stop the loop.
+# - Bot send failures are also isolated to the affected user.
+# - The scheduler itself does not create or modify review state.
+# - It only reads due reviews through the application use case.
+# - The callback button points back to the quiz flow in Telegram.
+# - Polling remains simple because this MVP does not support frequency rules.
+# - A dedicated scheduler can replace this service later without API changes.
+# - Keeping the logic here avoids leaking Telegram concerns into use cases.
+# - Tests cover once-per-day behavior and failure isolation.
+# - The loop is intentionally small so cancellation stays predictable.
+# - `Clock` injection keeps time-based behavior deterministic in tests.
+# - The repository is responsible for persistence, not scheduling logic.
+# - This file should stay focused on delivery timing and side effects.
+# - Anything user-facing beyond reminder text belongs in presentation code.
+
 from __future__ import annotations
 
 import asyncio
