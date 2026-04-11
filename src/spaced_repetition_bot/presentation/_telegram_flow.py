@@ -40,6 +40,7 @@ from spaced_repetition_bot.application.dtos import (
     ToggleLearningCommand,
     TranslatePhraseCommand,
     UpdateSettingsCommand,
+    UserSettingsSnapshot,
 )
 from spaced_repetition_bot.application.errors import (
     ApplicationError,
@@ -377,33 +378,16 @@ async def _update_settings(
     )
     try:
         updated = container.update_settings.execute(
-            UpdateSettingsCommand(
+            _build_update_settings_command(
                 user_id=message.from_user.id,
-                default_source_lang=(
-                    default_source_lang or current.default_source_lang
-                ),
-                default_target_lang=(
-                    default_target_lang or current.default_target_lang
-                ),
-                default_translation_direction=(
-                    default_translation_direction
-                    or current.default_translation_direction
-                ),
-                timezone=timezone or current.timezone,
-                notification_time_local=(
-                    notification_time_local
-                    or current.notification_time_local
-                ),
-                notification_frequency_days=(
-                    current.notification_frequency_days
-                    if notification_frequency_days is None
-                    else notification_frequency_days
-                ),
-                notifications_enabled=(
-                    current.notifications_enabled
-                    if notifications_enabled is None
-                    else notifications_enabled
-                ),
+                current=current,
+                default_source_lang=default_source_lang,
+                default_target_lang=default_target_lang,
+                default_translation_direction=default_translation_direction,
+                timezone=timezone,
+                notification_time_local=notification_time_local,
+                notification_frequency_days=notification_frequency_days,
+                notifications_enabled=notifications_enabled,
             )
         )
     except InvalidSettingsError as error:
@@ -413,6 +397,54 @@ async def _update_settings(
         _format_settings_card(updated),
         reply_markup=_build_settings_keyboard(updated),
     )
+
+
+def _build_update_settings_command(
+    *,
+    user_id: int,
+    current: UserSettingsSnapshot,
+    default_source_lang: str | None,
+    default_target_lang: str | None,
+    default_translation_direction: ReviewDirection | None,
+    timezone: str | None,
+    notification_time_local: time | None,
+    notification_frequency_days: int | None,
+    notifications_enabled: bool | None,
+) -> UpdateSettingsCommand:
+    return UpdateSettingsCommand(
+        user_id=user_id,
+        default_source_lang=_resolve_updated_setting(
+            current.default_source_lang,
+            default_source_lang,
+        ),
+        default_target_lang=_resolve_updated_setting(
+            current.default_target_lang,
+            default_target_lang,
+        ),
+        default_translation_direction=_resolve_updated_setting(
+            current.default_translation_direction,
+            default_translation_direction,
+        ),
+        timezone=_resolve_updated_setting(current.timezone, timezone),
+        notification_time_local=_resolve_updated_setting(
+            current.notification_time_local,
+            notification_time_local,
+        ),
+        notification_frequency_days=_resolve_updated_setting(
+            current.notification_frequency_days,
+            notification_frequency_days,
+        ),
+        notifications_enabled=_resolve_updated_setting(
+            current.notifications_enabled,
+            notifications_enabled,
+        ),
+    )
+
+
+def _resolve_updated_setting(current_value, override_value):
+    if override_value is None:
+        return current_value
+    return override_value
 
 
 async def _toggle_learning_from_command(
