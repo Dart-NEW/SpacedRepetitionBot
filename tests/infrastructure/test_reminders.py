@@ -35,6 +35,7 @@ def test_send_due_reminders_sends_once_and_marks_notification_day(
             default_translation_direction=ReviewDirection.FORWARD,
             timezone="UTC",
             notification_time_local=fixed_now.timetz().replace(tzinfo=None),
+            notification_frequency_days=1,
             notifications_enabled=True,
         )
     )
@@ -72,6 +73,7 @@ def test_send_due_reminders_skips_disabled_invalid_timezone_and_failures(
             default_translation_direction=ReviewDirection.FORWARD,
             timezone="UTC",
             notification_time_local=fixed_now.timetz().replace(tzinfo=None),
+            notification_frequency_days=1,
             notifications_enabled=False,
         )
     )
@@ -83,6 +85,7 @@ def test_send_due_reminders_skips_disabled_invalid_timezone_and_failures(
             default_translation_direction=ReviewDirection.FORWARD,
             timezone="UTC",
             notification_time_local=fixed_now.timetz().replace(tzinfo=None),
+            notification_frequency_days=1,
             notifications_enabled=True,
         )
     )
@@ -94,6 +97,7 @@ def test_send_due_reminders_skips_disabled_invalid_timezone_and_failures(
             default_translation_direction=ReviewDirection.FORWARD,
             timezone="UTC",
             notification_time_local=fixed_now.timetz().replace(tzinfo=None),
+            notification_frequency_days=1,
             notifications_enabled=True,
         )
     )
@@ -109,6 +113,7 @@ def test_send_due_reminders_skips_disabled_invalid_timezone_and_failures(
             default_translation_direction=ReviewDirection.FORWARD,
             timezone="Bad/Timezone",
             notification_time_local=fixed_now.timetz().replace(tzinfo=None),
+            notification_frequency_days=1,
             notifications_enabled=True,
             last_notification_local_date=None,
         )
@@ -144,3 +149,40 @@ def test_reminder_run_loops_until_cancelled(
         asyncio.run(test_container.reminder_service.run(FakeBot()))
 
     assert calls == ["tick"]
+
+
+def test_send_due_reminders_respects_notification_frequency(
+    test_container,
+    container_clock,
+    fixed_now,
+) -> None:
+    test_container.update_settings.execute(
+        UpdateSettingsCommand(
+            user_id=1,
+            default_source_lang="en",
+            default_target_lang="es",
+            default_translation_direction=ReviewDirection.FORWARD,
+            timezone="UTC",
+            notification_time_local=fixed_now.timetz().replace(tzinfo=None),
+            notification_frequency_days=3,
+            notifications_enabled=True,
+        )
+    )
+    test_container.translate_phrase.execute(
+        TranslatePhraseCommand(user_id=1, text="good luck")
+    )
+    settings = test_container.settings_repository.get(1)
+    test_container.settings_repository.save(
+        settings.mark_notification_sent(fixed_now.date())
+    )
+    container_clock.current = fixed_now + timedelta(days=2)
+    bot = FakeBot()
+
+    asyncio.run(test_container.reminder_service.send_due_reminders(bot))
+
+    assert bot.sent_messages == []
+
+    container_clock.current = fixed_now + timedelta(days=4)
+    asyncio.run(test_container.reminder_service.send_due_reminders(bot))
+
+    assert len(bot.sent_messages) == 1

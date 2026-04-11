@@ -7,7 +7,7 @@ helpers from this module together with the SQLAlchemy-backed implementations.
 from __future__ import annotations
 
 from contextlib import nullcontext
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import json
 from threading import Lock
@@ -34,6 +34,7 @@ from spaced_repetition_bot.infrastructure.database import (
     PhraseCardRecord,
     ReviewTrackRecord,
     TelegramQuizSessionRecord,
+    TranslationHistoryRecord,
     UserSettingsRecord,
 )
 
@@ -153,27 +154,6 @@ class InMemoryPhraseRepository:
                 return card
         return None
 
-    def list_history_by_user(
-        self, user_id: int, limit: int
-    ) -> list[HistoryItem]:
-        cards = sorted(
-            self.list_by_user(user_id),
-            key=lambda card: card.created_at,
-            reverse=True,
-        )
-        return [
-            HistoryItem(
-                card_id=card.id,
-                source_text=card.source_text,
-                translated_text=card.target_text,
-                source_lang=card.source_lang,
-                target_lang=card.target_lang,
-                created_at=card.created_at,
-                learning_status=card.learning_status,
-            )
-            for card in cards[:limit]
-        ]
-
     def list_due_reviews(
         self, user_id: int, now: datetime
     ) -> list[DueReviewItem]:
@@ -250,6 +230,36 @@ class InMemorySettingsRepository:
 
 
 @dataclass(slots=True)
+class InMemoryHistoryRepository:
+    """In-memory storage for translation history rows."""
+
+    _items: dict[UUID, HistoryItem] = field(default_factory=dict)
+
+    def add(self, item: HistoryItem) -> HistoryItem:
+        self._items[item.id] = item
+        return item
+
+    def save(self, item: HistoryItem) -> HistoryItem:
+        existing = self._items.get(item.id)
+        if existing is not None:
+            item = replace(item, created_at=existing.created_at)
+        self._items[item.id] = item
+        return item
+
+    def list_by_user(self, user_id: int, limit: int) -> list[HistoryItem]:
+        items = sorted(
+            (
+                item
+                for item in self._items.values()
+                if item.user_id == user_id
+            ),
+            key=lambda item: item.created_at,
+            reverse=True,
+        )
+        return items[:limit]
+
+
+@dataclass(slots=True)
 class InMemoryQuizSessionRepository:
     """In-memory storage for active quiz sessions."""
 
@@ -311,8 +321,28 @@ def _record_to_settings(record: UserSettingsRecord) -> UserSettings:
         ),
         timezone=record.timezone,
         notification_time_local=record.notification_time_local,
+        notification_frequency_days=record.notification_frequency_days,
         notifications_enabled=record.notifications_enabled,
         last_notification_local_date=record.last_notification_local_date,
+    )
+
+
+def _record_to_history_item(record: TranslationHistoryRecord) -> HistoryItem:
+    return HistoryItem(
+        id=UUID(record.id),
+        user_id=record.user_id,
+        card_id=UUID(record.card_id) if record.card_id is not None else None,
+        source_text=record.source_text,
+        translated_text=record.translated_text,
+        source_lang=record.source_lang,
+        target_lang=record.target_lang,
+        created_at=_normalize_datetime(record.created_at),
+        learning_status=(
+            LearningStatus(record.learning_status)
+            if record.learning_status is not None
+            else None
+        ),
+        saved=record.saved,
     )
 
 
@@ -347,10 +377,29 @@ def _apply_settings(
     )
     record.timezone = settings.timezone
     record.notification_time_local = settings.notification_time_local
+    record.notification_frequency_days = settings.notification_frequency_days
     record.notifications_enabled = settings.notifications_enabled
     record.last_notification_local_date = (
         settings.last_notification_local_date
     )
+
+
+def _apply_history_item(
+    record: TranslationHistoryRecord, item: HistoryItem
+) -> None:
+    record.user_id = item.user_id
+    record.card_id = str(item.card_id) if item.card_id is not None else None
+    record.source_text = item.source_text
+    record.translated_text = item.translated_text
+    record.source_lang = item.source_lang
+    record.target_lang = item.target_lang
+    record.created_at = _normalize_datetime(item.created_at)
+    record.learning_status = (
+        item.learning_status.value
+        if item.learning_status is not None
+        else None
+    )
+    record.saved = item.saved
 
 
 def _apply_card(record: PhraseCardRecord, card: PhraseCard) -> None:

@@ -39,6 +39,7 @@ from spaced_repetition_bot.infrastructure.reminders import (
     TelegramReminderService,
 )
 from spaced_repetition_bot.infrastructure.repositories import (
+    InMemoryHistoryRepository,
     InMemoryPhraseRepository,
     InMemoryQuizSessionRepository,
     InMemorySettingsRepository,
@@ -70,6 +71,7 @@ def build_test_dependencies(now: datetime) -> dict[str, object]:
     """Build the shared dependency set for runtime tests."""
 
     return {
+        "history_repository": InMemoryHistoryRepository(),
         "phrase_repository": InMemoryPhraseRepository(),
         "settings_repository": InMemorySettingsRepository(),
         "quiz_session_repository": InMemoryQuizSessionRepository(),
@@ -86,6 +88,7 @@ def build_test_use_cases(dependencies: dict[str, object]) -> dict[str, object]:
     """Wire the canonical application use cases."""
 
     phrase_repository = dependencies["phrase_repository"]
+    history_repository = dependencies["history_repository"]
     settings_repository = dependencies["settings_repository"]
     quiz_session_repository = dependencies["quiz_session_repository"]
     translator = dependencies["translator"]
@@ -107,13 +110,16 @@ def build_test_use_cases(dependencies: dict[str, object]) -> dict[str, object]:
 
     return {
         "translate_phrase": TranslatePhraseUseCase(
+            history_repository=history_repository,
             phrase_repository=phrase_repository,
             settings_repository=settings_repository,
             translation_provider=translator,
             spaced_repetition_policy=scheduler,
             clock=clock,
         ),
-        "get_history": GetHistoryUseCase(phrase_repository=phrase_repository),
+        "get_history": GetHistoryUseCase(
+            history_repository=history_repository
+        ),
         "toggle_learning": ToggleLearningUseCase(
             phrase_repository=phrase_repository
         ),

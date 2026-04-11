@@ -28,15 +28,18 @@ from spaced_repetition_bot.infrastructure.database import (
     PhraseCardRecord,
     ReviewTrackRecord,
     TelegramQuizSessionRecord,
+    TranslationHistoryRecord,
     UserSettingsRecord,
 )
 from spaced_repetition_bot.infrastructure._repositories_memory import (
     _apply_card,
+    _apply_history_item,
     _apply_settings,
     _needs_normalized_fallback,
     _normalize_datetime,
     _normalize_match_text,
     _record_to_card,
+    _record_to_history_item,
     _record_to_quiz_session,
     _record_to_settings,
     _serialize_pending_reviews,
@@ -134,37 +137,6 @@ class SqlAlchemyPhraseRepository:
             source_lang=source_lang,
             target_lang=target_lang,
         )
-
-    def list_history_by_user(
-        self, user_id: int, limit: int
-    ) -> list[HistoryItem]:
-        with self.session_factory() as session:
-            rows = session.execute(
-                select(
-                    PhraseCardRecord.id,
-                    PhraseCardRecord.source_text,
-                    PhraseCardRecord.target_text,
-                    PhraseCardRecord.source_lang,
-                    PhraseCardRecord.target_lang,
-                    PhraseCardRecord.created_at,
-                    PhraseCardRecord.learning_status,
-                )
-                .where(PhraseCardRecord.user_id == user_id)
-                .order_by(PhraseCardRecord.created_at.desc())
-                .limit(limit)
-            ).all()
-            return [
-                HistoryItem(
-                    card_id=UUID(row.id),
-                    source_text=row.source_text,
-                    translated_text=row.target_text,
-                    source_lang=row.source_lang,
-                    target_lang=row.target_lang,
-                    created_at=_normalize_datetime(row.created_at),
-                    learning_status=LearningStatus(row.learning_status),
-                )
-                for row in rows
-            ]
 
     def list_due_reviews(
         self, user_id: int, now: datetime
@@ -336,6 +308,47 @@ class SqlAlchemySettingsRepository:
         with self.session_factory() as session:
             records = session.execute(select(UserSettingsRecord)).scalars()
             return [_record_to_settings(record) for record in records]
+
+
+@dataclass(slots=True)
+class SqlAlchemyHistoryRepository:
+    """SQLAlchemy-backed translation history repository."""
+
+    session_factory: sessionmaker
+
+    def add(self, item: HistoryItem) -> HistoryItem:
+        with self.session_factory() as session:
+            with _sqlite_write_lock_for(session):
+                record = TranslationHistoryRecord(id=str(item.id))
+                _apply_history_item(record, item)
+                session.add(record)
+                session.commit()
+            return item
+
+    def save(self, item: HistoryItem) -> HistoryItem:
+        with self.session_factory() as session:
+            with _sqlite_write_lock_for(session):
+                record = session.get(TranslationHistoryRecord, str(item.id))
+                if record is None:
+                    record = TranslationHistoryRecord(id=str(item.id))
+                    session.add(record)
+                    _apply_history_item(record, item)
+                else:
+                    original_created_at = record.created_at
+                    _apply_history_item(record, item)
+                    record.created_at = original_created_at
+                session.commit()
+            return _record_to_history_item(record)
+
+    def list_by_user(self, user_id: int, limit: int) -> list[HistoryItem]:
+        with self.session_factory() as session:
+            records = session.execute(
+                select(TranslationHistoryRecord)
+                .where(TranslationHistoryRecord.user_id == user_id)
+                .order_by(TranslationHistoryRecord.created_at.desc())
+                .limit(limit)
+            ).scalars()
+            return [_record_to_history_item(record) for record in records]
 
 
 @dataclass(slots=True)

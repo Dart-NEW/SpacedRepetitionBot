@@ -97,15 +97,14 @@ interface rather than a content-heavy course platform.
 - bidirectional quizzes
 - manual answer checking
 - reminder delivery inside the Telegram bot process
-- user settings for pair, direction, timezone, notification time, and
-  notification enable state
+- user settings for pair, direction, timezone, notification time,
+  notification frequency, and notification enable state
 - HTTP API with OpenAPI documentation
 - Telegram chat-first flow with buttons, guided settings input, and reviews
 - automated syntax, lint, complexity, and test checks
 
 ### 5.2 Deferred
 
-- notification frequency as a separate setting
 - multiple quiz formats
 - semantic answer matching
 - phrase editing and deletion
@@ -129,9 +128,10 @@ interface rather than a content-heavy course platform.
    source text or the detected source language does not match the active pair.
 7. The Telegram translation card offers actions for reverse direction, quiz,
    settings, and learning control.
-8. Warning translations remain unsaved until the user explicitly confirms that
+8. Every translation attempt is written to history immediately.
+9. Warning translations remain unsaved until the user explicitly confirms that
    they should be kept.
-9. Exact duplicate cards are reused instead of creating additional entries.
+10. Exact duplicate cards are reused instead of creating additional entries.
 
 ### 6.2 History
 
@@ -143,7 +143,7 @@ interface rather than a content-heavy course platform.
    - translated phrase
    - language pair
    - creation date
-   - learning status
+   - learning status or unsaved preview state
 4. The API returns bounded history slices per request.
 5. Telegram history uses short card ids for quick `not_learning` and `restore`
    commands.

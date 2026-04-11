@@ -74,6 +74,7 @@ HELP_TEXT = (
     "/pair <source_lang> <target_lang> - change the active pair\n"
     "/direction <forward|reverse> - switch the default direction\n"
     "/notifytime <HH:MM> - set the local reminder time\n"
+    "/notifyevery <days> - set reminder frequency in days\n"
     "/timezone <IANA timezone> - set your timezone\n"
     "/notifications <on|off> - enable or disable reminders\n"
     "/notlearning <card_id|short_id> - pause a saved card\n"
@@ -98,6 +99,7 @@ BOT_COMMANDS: tuple[BotCommand, ...] = (
     BotCommand(command="pair", description="Set active language pair"),
     BotCommand(command="direction", description="Set translation direction"),
     BotCommand(command="notifytime", description="Set reminder time"),
+    BotCommand(command="notifyevery", description="Set reminder frequency"),
     BotCommand(command="timezone", description="Set timezone"),
     BotCommand(command="notifications", description="Toggle reminders"),
     BotCommand(command="cancel", description="Cancel settings input"),
@@ -139,6 +141,19 @@ def _parse_notification_time(raw_value: str | None) -> time | None:
     if not (0 <= hours <= 23 and 0 <= minutes <= 59):
         return None
     return time(hour=hours, minute=minutes)
+
+
+def _parse_notification_frequency_days(raw_value: str | None) -> int | None:
+    raw_value = (raw_value or "").strip()
+    if not raw_value:
+        return None
+    try:
+        days = int(raw_value)
+    except ValueError:
+        return None
+    if days < 1:
+        return None
+    return days
 
 
 def _is_valid_timezone(timezone_name: str) -> bool:
@@ -187,6 +202,12 @@ def _format_notification_state(enabled: bool) -> str:
 
 def _format_local_time(value: time) -> str:
     return value.strftime("%H:%M")
+
+
+def _format_notification_frequency(days: int) -> str:
+    if days == 1:
+        return "Every day"
+    return f"Every {days} days"
 
 
 def _format_local_datetime(
@@ -310,6 +331,9 @@ def _format_summary(summary: QuizSessionSummary) -> str:
 
 
 def _format_settings_card(settings: UserSettingsSnapshot) -> str:
+    notification_frequency = _format_notification_frequency(
+        settings.notification_frequency_days
+    )
     return (
         "Settings\n"
         f"Pair: {settings.default_source_lang} -> "
@@ -319,6 +343,8 @@ def _format_settings_card(settings: UserSettingsSnapshot) -> str:
         f"Timezone: {settings.timezone}\n"
         "Reminder time: "
         f"{_format_local_time(settings.notification_time_local)}\n"
+        "Reminder frequency: "
+        f"{notification_frequency}\n"
         "Notifications: "
         f"{_format_notification_state(settings.notifications_enabled)}"
     )
@@ -342,15 +368,28 @@ def _format_history_card(history: list[HistoryItem]) -> str:
     for item in history[:HISTORY_PAGE_SIZE]:
         lines.extend(
             [
-                f"{_format_short_card_id(item.card_id)}  "
+                f"{_format_history_reference(item)}  "
                 f"{item.source_text} -> {item.translated_text}",
-                "Learning: "
-                f"{_format_learning_status(item.learning_status)}",
+                "Learning: " f"{_format_history_learning_status(item)}",
                 "",
             ]
         )
-    lines.append("Use /notlearning <id> or /restore <id> with a short id.")
+    lines.append(
+        "Use /notlearning <id> or /restore <id> with a saved card short id."
+    )
     return "\n".join(lines).strip()
+
+
+def _format_history_reference(item: HistoryItem) -> str:
+    if not item.saved or item.card_id is None:
+        return "preview"
+    return _format_short_card_id(item.card_id)
+
+
+def _format_history_learning_status(item: HistoryItem) -> str:
+    if not item.saved or item.learning_status is None:
+        return "Not saved yet"
+    return _format_learning_status(item.learning_status)
 
 
 def _build_home_keyboard(
@@ -571,11 +610,15 @@ def _build_settings_keyboard(
                     callback_data="settings:notifytime",
                 ),
                 InlineKeyboardButton(
-                    text="Timezone",
-                    callback_data="settings:timezone",
+                    text="Reminder frequency",
+                    callback_data="settings:notifyevery",
                 ),
             ],
             [
+                InlineKeyboardButton(
+                    text="Timezone",
+                    callback_data="settings:timezone",
+                ),
                 InlineKeyboardButton(
                     text=notification_label,
                     callback_data=(

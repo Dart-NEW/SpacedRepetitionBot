@@ -40,6 +40,7 @@ class UserSettings:
     default_translation_direction: ReviewDirection = ReviewDirection.FORWARD
     timezone: str = "UTC"
     notification_time_local: time = time(hour=9, minute=0)
+    notification_frequency_days: int = 1
     notifications_enabled: bool = True
     last_notification_local_date: date | None = None
 
