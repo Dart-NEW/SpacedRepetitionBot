@@ -14,6 +14,8 @@ from sqlalchemy import (
     Time,
     create_engine,
     event,
+    inspect,
+    text,
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import (
@@ -104,9 +106,44 @@ class UserSettingsRecord(Base):
     default_translation_direction: Mapped[str] = mapped_column(String(16))
     timezone: Mapped[str] = mapped_column(String(64))
     notification_time_local: Mapped[Time] = mapped_column(Time)
+    notification_frequency_days: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1"
+    )
     notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     last_notification_local_date: Mapped[Date | None] = mapped_column(
         Date, nullable=True
+    )
+
+
+class TranslationHistoryRecord(Base):
+    """Database record for translation history rows."""
+
+    __tablename__ = "translation_history"
+    __table_args__ = (
+        Index(
+            "ix_translation_history_user_created_at",
+            "user_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    card_id: Mapped[str | None] = mapped_column(
+        ForeignKey("cards.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    source_text: Mapped[str] = mapped_column(Text)
+    translated_text: Mapped[str] = mapped_column(Text)
+    source_lang: Mapped[str] = mapped_column(String(16))
+    target_lang: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True))
+    learning_status: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )
+    saved: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="1"
     )
 
 
@@ -121,6 +158,30 @@ class TelegramQuizSessionRecord(Base):
     )
     direction: Mapped[str] = mapped_column(String(16))
     started_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True))
+    pending_reviews_json: Mapped[str] = mapped_column(
+        Text, default="[]", server_default="[]"
+    )
+    total_prompts: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1"
+    )
+    due_reviews_total: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1"
+    )
+    answered_prompts: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    correct_prompts: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    incorrect_prompts: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    awaiting_start: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="1"
+    )
+    message_id: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
 
 
 def build_engine(database_url: str) -> Engine:
@@ -157,6 +218,7 @@ def initialize_database(engine: Engine) -> None:
     """Create all tables for the MVP schema."""
 
     Base.metadata.create_all(engine)
+    _upgrade_database_schema(engine)
 
 
 def _configure_sqlite_engine(engine: Engine, *, enable_wal: bool) -> None:
@@ -173,3 +235,49 @@ def _configure_sqlite_engine(engine: Engine, *, enable_wal: bool) -> None:
         if enable_wal:
             cursor.execute("PRAGMA journal_mode=WAL")
         cursor.close()
+
+
+def _upgrade_database_schema(engine: Engine) -> None:
+    """Apply lightweight schema upgrades for existing local databases."""
+
+    inspector = inspect(engine)
+    table_names = inspector.get_table_names()
+    if "user_settings" in table_names:
+        settings_columns = {
+            column["name"] for column in inspector.get_columns("user_settings")
+        }
+        if "notification_frequency_days" not in settings_columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE user_settings "
+                        "ADD COLUMN notification_frequency_days "
+                        "INTEGER NOT NULL DEFAULT 1"
+                    )
+                )
+    if "telegram_quiz_sessions" not in table_names:
+        return
+    columns = {
+        column["name"]
+        for column in inspector.get_columns("telegram_quiz_sessions")
+    }
+    upgrades = {
+        "pending_reviews_json": "TEXT NOT NULL DEFAULT '[]'",
+        "total_prompts": "INTEGER NOT NULL DEFAULT 1",
+        "due_reviews_total": "INTEGER NOT NULL DEFAULT 1",
+        "answered_prompts": "INTEGER NOT NULL DEFAULT 0",
+        "correct_prompts": "INTEGER NOT NULL DEFAULT 0",
+        "incorrect_prompts": "INTEGER NOT NULL DEFAULT 0",
+        "awaiting_start": "BOOLEAN NOT NULL DEFAULT 1",
+        "message_id": "INTEGER",
+    }
+    with engine.begin() as connection:
+        for column_name, ddl in upgrades.items():
+            if column_name in columns:
+                continue
+            connection.execute(
+                text(
+                    "ALTER TABLE telegram_quiz_sessions "
+                    f"ADD COLUMN {column_name} {ddl}"
+                )
+            )

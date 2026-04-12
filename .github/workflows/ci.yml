@@ -40,7 +40,7 @@ jobs:
         run: radon mi -s src
 
       - name: Test and Coverage
-        run: pytest --maxfail=0 --cov=src --cov-report=term-missing --cov-fail-under=80
+        run: pytest --maxfail=0 --cov=src/spaced_repetition_bot --cov-report=term-missing --cov-fail-under=90
 
       - name: Security
         run: bandit -r src -lll

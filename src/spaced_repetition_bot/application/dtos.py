@@ -1,5 +1,27 @@
 """Typed commands, queries and result DTOs."""
 
+# DTO map:
+# - Gateway models describe adapter payloads returned by integrations.
+# - Command models capture write-side intent from presentation layers.
+# - Query models capture read-side requests from presentation layers.
+# - Result models are immutable snapshots returned by use cases.
+# - Translation DTOs cover provider output, user commands, and card results.
+# - History DTOs expose recent saved cards without leaking entities.
+# - Review DTOs represent due prompts and submitted answers.
+# - Settings DTOs keep the public API separate from domain internals.
+# - Progress DTOs aggregate counts for dashboards and API responses.
+# - Quiz DTOs model prompt batches, summaries, and active-session answers.
+# - These dataclasses are intentionally flat and serialization-friendly.
+# - Use cases construct them, while presentation layers only read them.
+# - Keeping them together makes cross-layer contracts easy to audit.
+# - Field order mirrors the user-facing message or JSON payload order.
+# - Optional fields appear only where a flow genuinely supports previews.
+# - Enum-typed fields keep validation close to the application boundary.
+# - No behavior lives here beyond dataclass defaults and structure.
+# - Tests exercise these shapes through API, Telegram, and use-case flows.
+# - When a contract changes, update this file before adapters.
+# - The public import path remains stable for tests and runtime wiring.
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -30,6 +52,8 @@ class TranslatePhraseCommand:
     text: str
     direction: ReviewDirection | None = None
     learn: bool = True
+    save_with_warning: bool = True
+    history_entry_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,15 +70,21 @@ class ScheduledReviewItem:
 class TranslationResult:
     """Result of translation and card creation."""
 
-    card_id: UUID
+    history_entry_id: UUID
+    card_id: UUID | None
     source_text: str
     translated_text: str
     direction: ReviewDirection
     source_lang: str
     target_lang: str
-    learning_status: LearningStatus
+    learning_status: LearningStatus | None
     provider_name: str
-    scheduled_reviews: tuple[ScheduledReviewItem, ScheduledReviewItem]
+    detected_source_lang: str | None
+    is_identity_translation: bool
+    has_pair_warning: bool
+    saved: bool
+    already_saved: bool
+    scheduled_reviews: tuple[ScheduledReviewItem, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,13 +99,16 @@ class GetHistoryQuery:
 class HistoryItem:
     """Single history row."""
 
-    card_id: UUID
+    id: UUID
+    user_id: int
+    card_id: UUID | None
     source_text: str
     translated_text: str
     source_lang: str
     target_lang: str
     created_at: datetime
-    learning_status: LearningStatus
+    learning_status: LearningStatus | None
+    saved: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,6 +192,7 @@ class UserSettingsSnapshot:
     default_translation_direction: ReviewDirection
     timezone: str
     notification_time_local: time
+    notification_frequency_days: int
     notifications_enabled: bool
 
 
@@ -172,6 +206,7 @@ class UpdateSettingsCommand:
     default_translation_direction: ReviewDirection
     timezone: str
     notification_time_local: time
+    notification_frequency_days: int
     notifications_enabled: bool
 
 
@@ -184,6 +219,29 @@ class QuizSessionPrompt:
     prompt_text: str
     expected_answer: str
     step_index: int
+    session_position: int = 1
+    total_prompts: int = 1
+
+
+@dataclass(frozen=True, slots=True)
+class QuizSessionStartResult:
+    """Telegram quiz session state returned on start or resume."""
+
+    prompt: QuizSessionPrompt
+    due_reviews_total: int
+    session_prompts_total: int
+    awaiting_start: bool
+
+
+@dataclass(frozen=True, slots=True)
+class QuizSessionSummary:
+    """Compact summary returned when a quiz session completes."""
+
+    total_prompts: int
+    answered_prompts: int
+    correct_prompts: int
+    incorrect_prompts: int
+    remaining_due_reviews: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,3 +250,12 @@ class ActiveQuizAnswerResult:
 
     review_result: ReviewAnswerResult
     next_prompt: QuizSessionPrompt | None
+    session_summary: QuizSessionSummary | None
+
+
+@dataclass(frozen=True, slots=True)
+class SkipQuizResult:
+    """Result of skipping the current quiz card."""
+
+    next_prompt: QuizSessionPrompt | None
+    session_summary: QuizSessionSummary | None

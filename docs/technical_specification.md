@@ -5,11 +5,11 @@
 SpacedRepetitionBot is a Telegram-first service for saving translated phrases
 and reviewing them through a fixed spaced repetition schedule.
 
-Specification review date: `2026-03-28`.
+Specification review date: `2026-03-29`.
 
-The current delivery stage covers the main product functionality. Dedicated
-testing expansion, migration tooling, and extended quality automation are
-deferred to a later stage.
+The current delivery stage covers the main product functionality, persistent
+storage, Telegram reminders, and automated quality checks. Migration tooling
+and broader product expansion are deferred to a later stage.
 
 ## 2. Product Goals
 
@@ -97,21 +97,20 @@ interface rather than a content-heavy course platform.
 - bidirectional quizzes
 - manual answer checking
 - reminder delivery inside the Telegram bot process
-- user settings for pair, direction, timezone, notification time, and
-  notification enable state
+- user settings for pair, direction, timezone, notification time,
+  notification frequency, and notification enable state
 - HTTP API with OpenAPI documentation
-- Telegram command flow for translation, settings, and reviews
+- Telegram chat-first flow with buttons, guided settings input, and reviews
+- automated syntax, lint, complexity, and test checks
 
 ### 5.2 Deferred
 
-- notification frequency as a separate setting
 - multiple quiz formats
 - semantic answer matching
 - phrase editing and deletion
 - multiple active language pairs per user
 - analytics beyond current learning state
 - migration tooling
-- expanded testing and quality automation phase
 
 ## 6. Functional Requirements
 
@@ -125,19 +124,29 @@ interface rather than a content-heavy course platform.
 4. The translation result is returned to the user.
 5. If learning is enabled, a card is persisted with review tracks for both
    directions.
+6. The Telegram response may warn the user when the translated text matches the
+   source text or the detected source language does not match the active pair.
+7. The Telegram translation card offers actions for reverse direction, quiz,
+   settings, and learning control.
+8. Every translation attempt is written to history immediately.
+9. Warning translations remain unsaved until the user explicitly confirms that
+   they should be kept.
+10. Exact duplicate cards are reused instead of creating additional entries.
 
 ### 6.2 History
 
 1. Every translation is stored per user.
 2. The user can request recent translation history.
 3. History must show:
-   - card id
+   - card id or short id prefix
    - source phrase
    - translated phrase
    - language pair
    - creation date
-   - learning status
+   - learning status or unsaved preview state
 4. The API returns bounded history slices per request.
+5. Telegram history uses short card ids for quick `not_learning` and `restore`
+   commands.
 
 ### 6.3 Learning Control
 
@@ -161,17 +170,25 @@ interface rather than a content-heavy course platform.
 
 1. The service fetches the due reviews for a user.
 2. The bot starts or resumes one active quiz session per user.
-3. The prompt shows the phrase in the language required by the selected review
+3. Each quiz session is capped to a short prompt batch in the Telegram UX.
+4. The bot presents a session intro before the first prompt.
+5. The prompt shows the phrase in the language required by the selected review
    direction.
-4. The user answers manually with text.
-5. The answer checker normalizes:
+6. The user answers manually with text.
+7. The answer checker normalizes:
    - surrounding whitespace
    - letter case
    - repeated spaces
    - common hyphen and dash variants
-6. The result updates review progress.
-7. The next due prompt is offered automatically when available.
-8. Skipping a quiz clears the active session but keeps the card due.
+8. The result updates review progress.
+9. The next due prompt is offered automatically when available.
+10. Skipping a card keeps it due and advances to the next prompt in the active
+    session when possible.
+11. The user can end the session explicitly without resetting due cards.
+12. At session completion, the bot shows a summary with answered, correct,
+    incorrect, and remaining due counts.
+13. The quiz session spreads different cards across the round when possible so
+    both directions of the same card are not asked back to back by default.
 
 ### 6.6 Notifications
 
@@ -182,6 +199,7 @@ interface rather than a content-heavy course platform.
    - notification enabled state
 3. A user receives a reminder only when due reviews exist.
 4. A user receives at most one reminder per local day.
+5. Reminder messages provide a direct Telegram action to start a quiz session.
 
 ### 6.7 Settings
 
@@ -193,6 +211,12 @@ Users can change:
 - timezone
 - preferred notification time
 - notification enabled state
+
+The Telegram settings flow supports:
+
+- inline button toggles for direction and notifications
+- guided text input for pair, timezone, and reminder time
+- `/cancel` for exiting an active guided input flow
 
 ## 7. Architecture
 
@@ -370,6 +394,14 @@ The project uses `Clean Architecture` with four layers:
 - `card_id`
 - `direction`
 - `started_at`
+- `pending_reviews_json`
+- `total_prompts`
+- `due_reviews_total`
+- `answered_prompts`
+- `correct_prompts`
+- `incorrect_prompts`
+- `awaiting_start`
+- `message_id`
 
 ## 12. Integrations
 
@@ -377,9 +409,11 @@ The project uses `Clean Architecture` with four layers:
 
 - bot token from environment variables
 - long polling entrypoint
-- command-based interaction style
+- chat-first interaction style with inline buttons
 - plain text translation outside an active quiz session
 - plain text answer handling during an active quiz session
+- guided settings input for pair, timezone, and reminder time
+- quiz session intro, progress feedback, and session summary messages
 - shared state across devices by Telegram user id
 
 Supported commands:
@@ -397,16 +431,18 @@ Supported commands:
 - `/skip`
 - `/notlearning`
 - `/restore`
+- `/cancel`
 
 ### 12.2 Translation Provider
 
 Provider interface:
 
-- `translate(text, source_lang, target_lang) -> TranslationResult`
+- `translate(text, source_lang, target_lang) -> TranslationGatewayResult`
 
-Implemented adapter:
+Implemented adapters:
 
 - `MockTranslationProvider`
+- `YandexTranslationProvider`
 
 ## 13. Review Logic
 
@@ -430,3 +466,4 @@ The current core-functionality stage is acceptable when:
 - the Telegram bot and HTTP API operate on the same stored data
 - the implemented commands and endpoints match the documented behavior
 - syntax passes `python3 -m compileall`
+- lint, complexity, and test checks pass in the supported development setup

@@ -1,11 +1,34 @@
 """Composition root for the application."""
 
+# Wiring overview:
+# - `build_container` is the single composition root for the application.
+# - Configuration is resolved once and then threaded through dependencies.
+# - Infrastructure adapters are created before application use cases.
+# - Domain policies are shared across the use cases that need them.
+# - The translation provider is selected from configuration, not callers.
+# - Database initialization happens before repositories are exposed.
+# - The same repositories back both HTTP and Telegram entrypoints.
+# - That keeps state consistent across interfaces and restarts.
+# - Reminder delivery receives only the ports it needs.
+# - The container stores concrete use-case instances for simple runtime use.
+# - This module intentionally contains no business rules.
+# - Its job is to connect policy, storage, and presentation boundaries.
+# - Tests import this module to confirm runtime wiring assumptions.
+# - Keeping construction explicit is more maintainable than hidden globals.
+# - New infrastructure integrations should be registered here first.
+# - New use cases should receive only the dependencies they actually use.
+# - Provider selection errors fail fast during startup.
+# - That is preferable to late runtime failures in handlers.
+# - The dataclass container keeps the resulting graph easy to inspect.
+# - This file remains the best place to understand whole-app assembly.
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 from spaced_repetition_bot.application.ports import TranslationProvider
 from spaced_repetition_bot.application.use_cases import (
+    EndQuizSessionUseCase,
     GetDueReviewsUseCase,
     GetHistoryUseCase,
     GetSettingsUseCase,
@@ -33,6 +56,7 @@ from spaced_repetition_bot.infrastructure.reminders import (
     TelegramReminderService,
 )
 from spaced_repetition_bot.infrastructure.repositories import (
+    SqlAlchemyHistoryRepository,
     SqlAlchemyPhraseRepository,
     SqlAlchemyQuizSessionRepository,
     SqlAlchemySettingsRepository,
@@ -54,6 +78,7 @@ class ApplicationContainer:
     get_due_reviews: GetDueReviewsUseCase
     start_quiz_session: StartQuizSessionUseCase
     skip_quiz_session: SkipQuizSessionUseCase
+    end_quiz_session: EndQuizSessionUseCase
     submit_active_quiz_answer: SubmitActiveQuizAnswerUseCase
     submit_review_answer: SubmitReviewAnswerUseCase
     get_user_progress: GetUserProgressUseCase
@@ -75,6 +100,9 @@ def build_container(config: AppConfig | None = None) -> ApplicationContainer:
     phrase_repository = SqlAlchemyPhraseRepository(
         session_factory=session_factory
     )
+    history_repository = SqlAlchemyHistoryRepository(
+        session_factory=session_factory
+    )
     settings_repository = SqlAlchemySettingsRepository(
         session_factory=session_factory
     )
@@ -82,7 +110,10 @@ def build_container(config: AppConfig | None = None) -> ApplicationContainer:
         session_factory=session_factory
     )
     translator = build_translation_provider(app_config)
-    spaced_repetition_policy = FixedIntervalSpacedRepetitionPolicy()
+    spaced_repetition_policy = FixedIntervalSpacedRepetitionPolicy(
+        intervals=app_config.review_intervals,
+        interval_unit=app_config.review_interval_unit,
+    )
     answer_evaluation_policy = NormalizedTextAnswerPolicy()
     submit_review_answer = SubmitReviewAnswerUseCase(
         phrase_repository=phrase_repository,
@@ -99,13 +130,14 @@ def build_container(config: AppConfig | None = None) -> ApplicationContainer:
     return ApplicationContainer(
         config=app_config,
         translate_phrase=TranslatePhraseUseCase(
+            history_repository=history_repository,
             phrase_repository=phrase_repository,
             settings_repository=settings_repository,
             translation_provider=translator,
             spaced_repetition_policy=spaced_repetition_policy,
             clock=clock,
         ),
-        get_history=GetHistoryUseCase(phrase_repository=phrase_repository),
+        get_history=GetHistoryUseCase(history_repository=history_repository),
         toggle_learning=ToggleLearningUseCase(
             phrase_repository=phrase_repository
         ),
@@ -115,12 +147,18 @@ def build_container(config: AppConfig | None = None) -> ApplicationContainer:
         ),
         start_quiz_session=start_quiz_session,
         skip_quiz_session=SkipQuizSessionUseCase(
+            phrase_repository=phrase_repository,
+            quiz_session_repository=quiz_session_repository,
+            clock=clock,
+        ),
+        end_quiz_session=EndQuizSessionUseCase(
             quiz_session_repository=quiz_session_repository,
         ),
         submit_active_quiz_answer=SubmitActiveQuizAnswerUseCase(
             quiz_session_repository=quiz_session_repository,
+            phrase_repository=phrase_repository,
             submit_review_answer_use_case=submit_review_answer,
-            start_quiz_session_use_case=start_quiz_session,
+            clock=clock,
         ),
         submit_review_answer=submit_review_answer,
         get_user_progress=GetUserProgressUseCase(

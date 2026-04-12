@@ -116,6 +116,18 @@ class TranslationResponse(BaseModel):
     provider_name: str = Field(
         description="Translation provider name.", examples=["mock"]
     )
+    detected_source_lang: str | None = Field(
+        description="Detected source language from the provider.",
+        examples=["en"],
+    )
+    is_identity_translation: bool = Field(
+        description="Whether the translation matched the input text.",
+        examples=[False],
+    )
+    has_pair_warning: bool = Field(
+        description="Whether the phrase may not match the active pair.",
+        examples=[False],
+    )
     scheduled_reviews: list[ScheduledReviewResponse] = Field(
         description="Review schedule for both directions."
     )
@@ -124,7 +136,11 @@ class TranslationResponse(BaseModel):
 class HistoryItemResponse(BaseModel):
     """Single history row returned by the API."""
 
-    card_id: UUID = Field(
+    id: UUID = Field(
+        description="History row identifier.",
+        examples=["22222222-2222-2222-2222-222222222222"],
+    )
+    card_id: UUID | None = Field(
         description="Card identifier.",
         examples=["11111111-1111-1111-1111-111111111111"],
     )
@@ -143,8 +159,12 @@ class HistoryItemResponse(BaseModel):
     created_at: datetime = Field(
         description="Creation timestamp.", examples=["2026-03-28T12:00:00Z"]
     )
-    learning_status: LearningStatus = Field(
+    learning_status: LearningStatus | None = Field(
         description="Learning status.", examples=["active"]
+    )
+    saved: bool = Field(
+        description="Whether the translation was saved as a learning card.",
+        examples=[True],
     )
 
 
@@ -282,6 +302,10 @@ class SettingsResponse(BaseModel):
         description="Preferred local notification time.",
         examples=["09:00:00"],
     )
+    notification_frequency_days: int = Field(
+        description="Number of days between reminder attempts.",
+        examples=[1],
+    )
     notifications_enabled: bool = Field(
         description="Whether notifications are enabled.",
         examples=[True],
@@ -313,6 +337,14 @@ class UpdateSettingsRequest(BaseModel):
     notification_time_local: time = Field(
         description="Preferred local notification time.",
         examples=["09:00:00"],
+    )
+    notification_frequency_days: int | None = Field(
+        default=None,
+        description=(
+            "Reminder frequency in whole days. "
+            "When omitted, the current setting is preserved."
+        ),
+        examples=[2],
     )
     notifications_enabled: bool = Field(
         description="Whether notifications should be sent.",
@@ -366,6 +398,9 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
                             "target_lang": "es",
                             "learning_status": "active",
                             "provider_name": "mock",
+                            "detected_source_lang": "en",
+                            "is_identity_translation": False,
+                            "has_pair_warning": False,
                             "scheduled_reviews": [
                                 {
                                     "direction": "forward",
@@ -419,6 +454,9 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
             target_lang=result.target_lang,
             learning_status=result.learning_status,
             provider_name=result.provider_name,
+            detected_source_lang=result.detected_source_lang,
+            is_identity_translation=result.is_identity_translation,
+            has_pair_warning=result.has_pair_warning,
             scheduled_reviews=[
                 ScheduledReviewResponse.model_validate(
                     item, from_attributes=True
@@ -439,6 +477,9 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
                     "application/json": {
                         "example": [
                             {
+                                "id": (
+                                    "22222222-2222-2222-2222-222222222222"
+                                ),
                                 "card_id": (
                                     "11111111-1111-1111-1111-111111111111"
                                 ),
@@ -448,6 +489,7 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
                                 "target_lang": "es",
                                 "created_at": "2026-03-28T12:00:00Z",
                                 "learning_status": "active",
+                                "saved": True,
                             }
                         ]
                     }
@@ -467,9 +509,12 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
             examples=[20],
         ),
     ) -> list[HistoryItemResponse]:
-        items = container.get_history.execute(
-            GetHistoryQuery(user_id=user_id, limit=limit)
-        )
+        try:
+            items = container.get_history.execute(
+                GetHistoryQuery(user_id=user_id, limit=limit)
+            )
+        except ApplicationError as error:
+            raise to_http_exception(error) from error
         return [
             HistoryItemResponse.model_validate(item, from_attributes=True)
             for item in items
@@ -554,7 +599,10 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
             description="Telegram user id.", examples=[123456789]
         ),
     ) -> list[DueReviewResponse]:
-        items = container.get_due_reviews.execute(user_id=user_id)
+        try:
+            items = container.get_due_reviews.execute(user_id=user_id)
+        except ApplicationError as error:
+            raise to_http_exception(error) from error
         return [
             DueReviewResponse.model_validate(item, from_attributes=True)
             for item in items
@@ -658,9 +706,12 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
             description="Telegram user id.", examples=[123456789]
         ),
     ) -> ProgressResponse:
-        result = container.get_user_progress.execute(
-            GetUserProgressQuery(user_id=user_id)
-        )
+        try:
+            result = container.get_user_progress.execute(
+                GetUserProgressQuery(user_id=user_id)
+            )
+        except ApplicationError as error:
+            raise to_http_exception(error) from error
         return ProgressResponse.model_validate(result, from_attributes=True)
 
     @router.get(
@@ -680,6 +731,7 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
                             "default_translation_direction": "forward",
                             "timezone": "Europe/Moscow",
                             "notification_time_local": "09:00:00",
+                            "notification_frequency_days": 1,
                             "notifications_enabled": True,
                         }
                     }
@@ -692,9 +744,12 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
             description="Telegram user id.", examples=[123456789]
         ),
     ) -> SettingsResponse:
-        result = container.get_settings.execute(
-            GetSettingsQuery(user_id=user_id)
-        )
+        try:
+            result = container.get_settings.execute(
+                GetSettingsQuery(user_id=user_id)
+            )
+        except ApplicationError as error:
+            raise to_http_exception(error) from error
         return SettingsResponse.model_validate(result, from_attributes=True)
 
     @router.put(
@@ -717,6 +772,7 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
                             "default_translation_direction": "forward",
                             "timezone": "Europe/Moscow",
                             "notification_time_local": "09:00:00",
+                            "notification_frequency_days": 1,
                             "notifications_enabled": True,
                         }
                     }
@@ -735,6 +791,7 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
                     "default_translation_direction": "forward",
                     "timezone": "Europe/Moscow",
                     "notification_time_local": "09:00:00",
+                    "notification_frequency_days": 1,
                     "notifications_enabled": True,
                 }
             ],
@@ -742,11 +799,23 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
     ) -> SettingsResponse:
         try:
             direction = payload.default_translation_direction
-            if direction is None:
+            notification_frequency_days = (
+                payload.notification_frequency_days
+            )
+            current = None
+            if (
+                direction is None
+                or notification_frequency_days is None
+            ):
                 current = container.get_settings.execute(
                     GetSettingsQuery(user_id=payload.user_id)
                 )
+            if direction is None:
                 direction = current.default_translation_direction
+            if notification_frequency_days is None:
+                notification_frequency_days = (
+                    current.notification_frequency_days
+                )
             result = container.update_settings.execute(
                 UpdateSettingsCommand(
                     user_id=payload.user_id,
@@ -755,6 +824,7 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
                     default_translation_direction=direction,
                     timezone=payload.timezone,
                     notification_time_local=payload.notification_time_local,
+                    notification_frequency_days=notification_frequency_days,
                     notifications_enabled=payload.notifications_enabled,
                 )
             )
