@@ -106,9 +106,44 @@ class UserSettingsRecord(Base):
     default_translation_direction: Mapped[str] = mapped_column(String(16))
     timezone: Mapped[str] = mapped_column(String(64))
     notification_time_local: Mapped[Time] = mapped_column(Time)
+    notification_frequency_days: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1"
+    )
     notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     last_notification_local_date: Mapped[Date | None] = mapped_column(
         Date, nullable=True
+    )
+
+
+class TranslationHistoryRecord(Base):
+    """Database record for translation history rows."""
+
+    __tablename__ = "translation_history"
+    __table_args__ = (
+        Index(
+            "ix_translation_history_user_created_at",
+            "user_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    card_id: Mapped[str | None] = mapped_column(
+        ForeignKey("cards.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+    source_text: Mapped[str] = mapped_column(Text)
+    translated_text: Mapped[str] = mapped_column(Text)
+    source_lang: Mapped[str] = mapped_column(String(16))
+    target_lang: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True))
+    learning_status: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )
+    saved: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="1"
     )
 
 
@@ -206,7 +241,21 @@ def _upgrade_database_schema(engine: Engine) -> None:
     """Apply lightweight schema upgrades for existing local databases."""
 
     inspector = inspect(engine)
-    if "telegram_quiz_sessions" not in inspector.get_table_names():
+    table_names = inspector.get_table_names()
+    if "user_settings" in table_names:
+        settings_columns = {
+            column["name"] for column in inspector.get_columns("user_settings")
+        }
+        if "notification_frequency_days" not in settings_columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE user_settings "
+                        "ADD COLUMN notification_frequency_days "
+                        "INTEGER NOT NULL DEFAULT 1"
+                    )
+                )
+    if "telegram_quiz_sessions" not in table_names:
         return
     columns = {
         column["name"]

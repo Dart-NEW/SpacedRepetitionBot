@@ -63,7 +63,9 @@ class TelegramReminderService:
             except ZoneInfoNotFoundError:
                 continue
             local_now = now.astimezone(timezone)
-            if settings.last_notification_local_date == local_now.date():
+            if settings.last_notification_local_date is not None and (
+                local_now.date() - settings.last_notification_local_date
+            ).days < settings.notification_frequency_days:
                 continue
             if (
                 local_now.time().replace(second=0, microsecond=0)

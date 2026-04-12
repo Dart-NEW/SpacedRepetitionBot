@@ -215,6 +215,7 @@ the reminder flow without waiting for multiple days.
 - `/pair <source_lang> <target_lang>`
 - `/direction <forward|reverse>`
 - `/notifytime <HH:MM>`
+- `/notifyevery <days>`
 - `/timezone <IANA timezone>`
 - `/notifications <on|off>`
 - `/quiz`
@@ -242,6 +243,7 @@ Plain text behavior:
 - cards marked as `not_learning` stay in history and can be restored
 - exact duplicate cards are reused instead of being created again
 - quiz sessions spread the same card directions apart when possible
+- warning previews are written to history immediately and updated in place if kept
 - `/history` shows short card ids for quick pause and restore commands
 
 ## HTTP API
@@ -260,7 +262,6 @@ Implemented endpoints:
 
 ## Current Deferred Items
 
-- notification frequency as a separate setting
 - multiple quiz formats
 - phrase edit and delete flows
 - multiple active language pairs per user

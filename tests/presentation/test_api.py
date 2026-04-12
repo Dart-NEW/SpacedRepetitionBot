@@ -38,6 +38,7 @@ def test_api_flow_covers_settings_translation_history_progress_and_reviews(
             "default_translation_direction": "forward",
             "timezone": "UTC",
             "notification_time_local": "09:00:00",
+            "notification_frequency_days": 2,
             "notifications_enabled": True,
         },
     )
@@ -84,7 +85,9 @@ def test_api_flow_covers_settings_translation_history_progress_and_reviews(
     assert settings_response.status_code == 200
     assert translation_response.status_code == 201
     assert history_response.json()[0]["source_text"] == "good luck"
+    assert history_response.json()[0]["saved"] is True
     assert progress_response.json()["total_cards"] == 1
+    assert settings_response.json()["notification_frequency_days"] == 2
     assert (
         settings_get_response.json()["default_translation_direction"]
         == "forward"
@@ -190,6 +193,7 @@ def test_api_validates_payloads_and_query_constraints(api_client) -> None:
             "default_translation_direction": "forward",
             "timezone": "UTC",
             "notification_time_local": "09:00:00",
+            "notification_frequency_days": 1,
             "notifications_enabled": True,
         },
     )

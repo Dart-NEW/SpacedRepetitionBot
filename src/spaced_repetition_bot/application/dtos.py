@@ -53,6 +53,7 @@ class TranslatePhraseCommand:
     direction: ReviewDirection | None = None
     learn: bool = True
     save_with_warning: bool = True
+    history_entry_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +70,7 @@ class ScheduledReviewItem:
 class TranslationResult:
     """Result of translation and card creation."""
 
+    history_entry_id: UUID
     card_id: UUID | None
     source_text: str
     translated_text: str
@@ -97,13 +99,16 @@ class GetHistoryQuery:
 class HistoryItem:
     """Single history row."""
 
-    card_id: UUID
+    id: UUID
+    user_id: int
+    card_id: UUID | None
     source_text: str
     translated_text: str
     source_lang: str
     target_lang: str
     created_at: datetime
-    learning_status: LearningStatus
+    learning_status: LearningStatus | None
+    saved: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +192,7 @@ class UserSettingsSnapshot:
     default_translation_direction: ReviewDirection
     timezone: str
     notification_time_local: time
+    notification_frequency_days: int
     notifications_enabled: bool
 
 
@@ -200,6 +206,7 @@ class UpdateSettingsCommand:
     default_translation_direction: ReviewDirection
     timezone: str
     notification_time_local: time
+    notification_frequency_days: int
     notifications_enabled: bool
 
 

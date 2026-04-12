@@ -39,6 +39,7 @@ from spaced_repetition_bot.presentation.telegram import (
     _format_summary,
     _format_translation_card,
     _parse_direction,
+    _parse_notification_frequency_days,
     _parse_notification_time,
     build_telegram_router,
 )
@@ -179,6 +180,17 @@ def test_telegram_setting_commands_validate_and_update_values(
         )
     )
     asyncio.run(
+        callbacks["handle_notify_every"](
+            message,
+            CommandObject(
+                prefix="/",
+                command="notifyevery",
+                mention=None,
+                args="2",
+            ),
+        )
+    )
+    asyncio.run(
         callbacks["handle_timezone"](
             message,
             CommandObject(
@@ -207,6 +219,7 @@ def test_telegram_setting_commands_validate_and_update_values(
     assert stored.default_source_lang == "de"
     assert stored.default_translation_direction is ReviewDirection.REVERSE
     assert stored.timezone == "Europe/Berlin"
+    assert stored.notification_frequency_days == 2
     assert stored.notifications_enabled is False
 
 
@@ -261,6 +274,17 @@ def test_telegram_commands_return_usage_errors_for_invalid_arguments(
         )
     )
     asyncio.run(
+        callbacks["handle_notify_every"](
+            message,
+            CommandObject(
+                prefix="/",
+                command="notifyevery",
+                mention=None,
+                args="zero",
+            ),
+        )
+    )
+    asyncio.run(
         callbacks["handle_notifications"](
             message,
             CommandObject(
@@ -277,6 +301,7 @@ def test_telegram_commands_return_usage_errors_for_invalid_arguments(
         "Usage: /direction <forward|reverse>\nExample: /direction reverse",
         "Usage: /notifytime <HH:MM>\nExample: /notifytime 09:30",
         "Timezone must be a valid IANA timezone name.",
+        "Usage: /notifyevery <days>\nExample: /notifyevery 2",
         "Usage: /notifications <on|off>\nExample: /notifications off",
     ]
 
@@ -466,6 +491,27 @@ def test_telegram_callback_flow_covers_quiz_start_and_guided_settings(
     asyncio.run(callbacks["message"]["handle_translation"](pair_input))
     assert "Pair: de -> it" in pair_input.answers[0].text
 
+    notify_every_callback = FakeCallbackQuery(
+        from_user=user,
+        message=settings_card,
+        data="settings:notifyevery",
+    )
+    asyncio.run(
+        callbacks["callback"]["handle_settings_notify_every"](
+            notify_every_callback
+        )
+    )
+    assert settings_card.answers[1].text.startswith(
+        "Send the reminder frequency"
+    )
+
+    notify_every_input = RichFakeMessage(from_user=user, text="3")
+    asyncio.run(callbacks["message"]["handle_translation"](notify_every_input))
+    assert (
+        "Reminder frequency: Every 3 days"
+        in notify_every_input.answers[0].text
+    )
+
 
 def test_warning_translation_requires_explicit_keep_callback() -> None:
     dependencies = build_test_dependencies(
@@ -508,9 +554,12 @@ def test_warning_translation_requires_explicit_keep_callback() -> None:
     warning_card = translation_message.answers[0]
     assert "Pair warning" in warning_card.text
     assert "Learning: Not saved yet" in warning_card.text
-    assert container.get_history.execute(
+    preview_history = container.get_history.execute(
         GetHistoryQuery(user_id=user.id)
-    ) == []
+    )
+    assert len(preview_history) == 1
+    assert preview_history[0].saved is False
+    assert preview_history[0].card_id is None
 
     keep_callback = FakeCallbackQuery(
         from_user=user,
@@ -525,7 +574,9 @@ def test_warning_translation_requires_explicit_keep_callback() -> None:
     assert "Learning: Active" in warning_card.answers[0].text
     history = container.get_history.execute(GetHistoryQuery(user_id=user.id))
     assert len(history) == 1
+    assert history[0].id == preview_history[0].id
     assert history[0].source_text == "smekh"
+    assert history[0].saved is True
 
 
 def test_telegram_helper_parsers_and_formatters() -> None:
@@ -536,6 +587,9 @@ def test_telegram_helper_parsers_and_formatters() -> None:
     assert _parse_notification_time("08:15") == time(hour=8, minute=15)
     assert _parse_notification_time("24:00") is None
     assert _parse_notification_time("bad") is None
+    assert _parse_notification_frequency_days("2") == 2
+    assert _parse_notification_frequency_days("0") is None
+    assert _parse_notification_frequency_days("bad") is None
 
     prompt = QuizSessionPrompt(
         card_id=uuid4(),
@@ -553,6 +607,7 @@ def test_telegram_helper_parsers_and_formatters() -> None:
         default_translation_direction=ReviewDirection.FORWARD,
         timezone="Europe/Moscow",
         notification_time_local=time(hour=9, minute=30),
+        notification_frequency_days=2,
         notifications_enabled=True,
     )
     progress = UserProgressSnapshot(
@@ -578,6 +633,7 @@ def test_telegram_helper_parsers_and_formatters() -> None:
         awaiting_start=True,
     )
     translation = TranslationResult(
+        history_entry_id=uuid4(),
         card_id=uuid4(),
         source_text="Smekh",
         translated_text="Smekh",
@@ -613,6 +669,9 @@ def test_telegram_helper_parsers_and_formatters() -> None:
 
     assert "Progress: 3/10" in _format_quiz_prompt(prompt)
     assert "Reminder time: 09:30" in _format_settings_card(settings)
+    assert "Reminder frequency: Every 2 days" in _format_settings_card(
+        settings
+    )
     assert "Due now: 4" in _format_progress_card(progress)
     assert "Tap Start to begin." in _format_quiz_intro(start_result)
     assert "Still due: 3" in _format_summary(summary)

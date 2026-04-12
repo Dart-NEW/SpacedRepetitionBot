@@ -48,6 +48,7 @@ def test_default_settings_and_snapshot_helpers() -> None:
     assert snapshot.user_id == 42
     assert snapshot.default_source_lang == "en"
     assert snapshot.default_target_lang == "es"
+    assert snapshot.notification_frequency_days == 1
 
 
 def test_map_scheduled_review_reflects_track_completion(fixed_now) -> None:
@@ -79,6 +80,7 @@ def test_translate_phrase_uses_default_settings_when_user_has_no_profile(
 
 
 def test_translate_phrase_respects_reverse_direction_and_learn_false(
+    test_dependencies,
     test_use_cases,
 ) -> None:
     test_use_cases["update_settings"].execute(
@@ -89,6 +91,7 @@ def test_translate_phrase_respects_reverse_direction_and_learn_false(
             default_translation_direction=ReviewDirection.REVERSE,
             timezone="UTC",
             notification_time_local=time(hour=9),
+            notification_frequency_days=1,
             notifications_enabled=True,
         )
     )
@@ -100,7 +103,7 @@ def test_translate_phrase_respects_reverse_direction_and_learn_false(
             learn=False,
         )
     )
-    stored = test_use_cases["get_history"].phrase_repository.get(
+    stored = test_dependencies["phrase_repository"].get(
         result.card_id
     )
 
@@ -129,6 +132,54 @@ def test_get_history_sorts_descending_and_honors_limit(
 
     assert len(history) == 1
     assert history[0].source_text == "hello"
+    assert history[0].saved is True
+
+
+def test_warning_preview_is_stored_and_keep_updates_same_history_entry(
+    test_dependencies,
+    test_use_cases,
+) -> None:
+    translator = test_dependencies["translator"]
+    translator.glossary[("smekh", "en", "es")] = "smekh"
+
+    preview = test_use_cases["translate_phrase"].execute(
+        TranslatePhraseCommand(
+            user_id=1,
+            text="smekh",
+            save_with_warning=False,
+        )
+    )
+
+    preview_history = test_use_cases["get_history"].execute(
+        GetHistoryQuery(user_id=1)
+    )
+
+    assert preview.saved is False
+    assert len(preview_history) == 1
+    assert preview_history[0].id == preview.history_entry_id
+    assert preview_history[0].saved is False
+    assert preview_history[0].card_id is None
+    assert preview_history[0].learning_status is None
+
+    saved = test_use_cases["translate_phrase"].execute(
+        TranslatePhraseCommand(
+            user_id=1,
+            text="smekh",
+            direction=preview.direction,
+            save_with_warning=True,
+            history_entry_id=preview.history_entry_id,
+        )
+    )
+
+    saved_history = test_use_cases["get_history"].execute(
+        GetHistoryQuery(user_id=1)
+    )
+
+    assert saved.saved is True
+    assert len(saved_history) == 1
+    assert saved_history[0].id == preview.history_entry_id
+    assert saved_history[0].saved is True
+    assert saved_history[0].card_id == saved.card_id
 
 
 def test_load_user_card_raises_for_missing_or_foreign_card(
@@ -356,6 +407,7 @@ def test_update_and_get_settings_validate_and_preserve_notification_day(
             default_translation_direction=ReviewDirection.REVERSE,
             timezone="Europe/Moscow",
             notification_time_local=time(hour=8, minute=15),
+            notification_frequency_days=3,
             notifications_enabled=False,
         )
     )
@@ -367,17 +419,55 @@ def test_update_and_get_settings_validate_and_preserve_notification_day(
     assert updated.default_source_lang == "en"
     assert updated.default_target_lang == "pt-br"
     assert updated.default_translation_direction is ReviewDirection.REVERSE
+    assert updated.notification_frequency_days == 3
     assert fetched.notifications_enabled is False
     assert repository.get(1).last_notification_local_date == date(2026, 3, 28)
 
 
 @pytest.mark.parametrize(
-    ("source_lang", "target_lang", "timezone_name", "message"),
+    (
+        "source_lang",
+        "target_lang",
+        "timezone_name",
+        "notification_frequency_days",
+        "message",
+    ),
     [
-        ("en", "en", "UTC", "Source and target languages must differ."),
-        ("english", "es", "UTC", "Source language code is invalid."),
-        ("en", "spanish", "UTC", "Target language code is invalid."),
-        ("en", "es", "Mars/Colony", "Timezone must be a valid IANA timezone."),
+        (
+            "en",
+            "en",
+            "UTC",
+            1,
+            "Source and target languages must differ.",
+        ),
+        (
+            "english",
+            "es",
+            "UTC",
+            1,
+            "Source language code is invalid.",
+        ),
+        (
+            "en",
+            "spanish",
+            "UTC",
+            1,
+            "Target language code is invalid.",
+        ),
+        (
+            "en",
+            "es",
+            "Mars/Colony",
+            1,
+            "Timezone must be a valid IANA timezone.",
+        ),
+        (
+            "en",
+            "es",
+            "UTC",
+            0,
+            "Notification frequency must be at least one day.",
+        ),
     ],
 )
 def test_update_settings_rejects_invalid_values(
@@ -385,6 +475,7 @@ def test_update_settings_rejects_invalid_values(
     source_lang: str,
     target_lang: str,
     timezone_name: str,
+    notification_frequency_days: int,
     message: str,
 ) -> None:
     with pytest.raises(InvalidSettingsError, match=message):
@@ -396,6 +487,7 @@ def test_update_settings_rejects_invalid_values(
                 default_translation_direction=ReviewDirection.FORWARD,
                 timezone=timezone_name,
                 notification_time_local=time(hour=9),
+                notification_frequency_days=notification_frequency_days,
                 notifications_enabled=True,
             )
         )

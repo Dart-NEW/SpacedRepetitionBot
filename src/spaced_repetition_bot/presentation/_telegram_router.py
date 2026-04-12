@@ -62,6 +62,7 @@ from spaced_repetition_bot.presentation._telegram_ui import (
     _build_home_keyboard,
     _is_valid_timezone,
     _parse_direction,
+    _parse_notification_frequency_days,
     _parse_notification_time,
     _reverse_direction,
 )
@@ -174,6 +175,28 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
             container=container,
             message=message,
             notification_time_local=parsed_time,
+        )
+
+    @router.message(Command("notifyevery"))
+    async def handle_notify_every(
+        message: Message,
+        command: CommandObject,
+    ) -> None:
+        if message.from_user is None:
+            return
+        notification_frequency_days = _parse_notification_frequency_days(
+            command.args
+        )
+        if notification_frequency_days is None:
+            await message.answer(
+                "Usage: /notifyevery <days>\n"
+                "Example: /notifyevery 2"
+            )
+            return
+        await _update_settings(
+            container=container,
+            message=message,
+            notification_frequency_days=notification_frequency_days,
         )
 
     @router.message(Command("timezone"))
@@ -307,6 +330,20 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
             ),
         )
 
+    @router.callback_query(F.data == "settings:notifyevery")
+    async def handle_settings_notify_every(
+        callback: CallbackQuery,
+    ) -> None:
+        await _begin_guided_settings_input(
+            callback=callback,
+            pending_inputs=pending_inputs,
+            kind="notifyevery",
+            prompt=(
+                "Send the reminder frequency in whole days.\n"
+                "Example: 2"
+            ),
+        )
+
     @router.callback_query(F.data == "settings:timezone")
     async def handle_settings_timezone(callback: CallbackQuery) -> None:
         await _begin_guided_settings_input(
@@ -395,6 +432,7 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
                     direction=reversed_direction,
                     learn=preview.command.learn,
                     save_with_warning=False,
+                    history_entry_id=None,
                 ),
             )
             return
@@ -430,6 +468,7 @@ def build_telegram_router(container: ApplicationContainer) -> Router:
                 direction=preview.command.direction,
                 learn=preview.command.learn,
                 save_with_warning=True,
+                history_entry_id=preview.command.history_entry_id,
             ),
         )
 

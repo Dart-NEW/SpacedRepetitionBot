@@ -13,6 +13,7 @@ from spaced_repetition_bot.presentation._telegram_ui import (
     _format_summary,
     _format_translation_card,
     _parse_direction,
+    _parse_notification_frequency_days,
     _parse_notification_time,
     configure_telegram_bot_ui,
 )
@@ -29,5 +30,6 @@ __all__ = [
     "_format_summary",
     "_format_translation_card",
     "_parse_direction",
+    "_parse_notification_frequency_days",
     "_parse_notification_time",
 ]

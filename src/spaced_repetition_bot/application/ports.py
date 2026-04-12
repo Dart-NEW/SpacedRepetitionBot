@@ -52,11 +52,6 @@ class PhraseRepository(Protocol):
     ) -> PhraseCard | None:
         """Return an existing card that matches the translation payload."""
 
-    def list_history_by_user(
-        self, user_id: int, limit: int
-    ) -> list[HistoryItem]:
-        """Return recent history rows for a user."""
-
     def list_due_reviews(
         self, user_id: int, now: datetime
     ) -> list[DueReviewItem]:
@@ -79,6 +74,19 @@ class SettingsRepository(Protocol):
 
     def list_all(self) -> list[UserSettings]:
         """Return all stored settings."""
+
+
+class HistoryRepository(Protocol):
+    """Translation history storage."""
+
+    def add(self, item: HistoryItem) -> HistoryItem:
+        """Persist a new history row."""
+
+    def save(self, item: HistoryItem) -> HistoryItem:
+        """Persist an existing history row."""
+
+    def list_by_user(self, user_id: int, limit: int) -> list[HistoryItem]:
+        """Return recent history rows for a user."""
 
 
 class QuizSessionRepository(Protocol):

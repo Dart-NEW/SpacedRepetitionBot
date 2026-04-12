@@ -38,6 +38,7 @@ from spaced_repetition_bot.application.errors import (
 )
 from spaced_repetition_bot.application.ports import (
     Clock,
+    HistoryRepository,
     PhraseRepository,
     SettingsRepository,
     TranslationProvider,
@@ -77,6 +78,7 @@ def map_settings_snapshot(settings: UserSettings) -> UserSettingsSnapshot:
         default_translation_direction=settings.default_translation_direction,
         timezone=settings.timezone,
         notification_time_local=settings.notification_time_local,
+        notification_frequency_days=settings.notification_frequency_days,
         notifications_enabled=settings.notifications_enabled,
     )
 
@@ -219,6 +221,7 @@ def build_quiz_summary(
 class TranslatePhraseUseCase:
     """Translate text and create a learning card."""
 
+    history_repository: HistoryRepository
     phrase_repository: PhraseRepository
     settings_repository: SettingsRepository
     translation_provider: TranslationProvider
@@ -229,6 +232,7 @@ class TranslatePhraseUseCase:
         settings = self._get_or_create_settings(command.user_id)
         direction = command.direction or settings.default_translation_direction
         source_lang, target_lang = settings.translation_pair_for(direction)
+        now = self.clock.now()
         translated = self.translation_provider.translate(
             text=command.text,
             source_lang=source_lang,
@@ -244,7 +248,15 @@ class TranslatePhraseUseCase:
             warning_state=warning_state,
             command=command,
         ):
+            history_item = self._store_history_item(
+                command=command,
+                translated_text=translated.translated_text,
+                source_lang=source_lang,
+                target_lang=target_lang,
+                now=now,
+            )
             return self._build_preview_result(
+                history_entry_id=history_item.id,
                 command=command,
                 translated_text=translated.translated_text,
                 direction=direction,
@@ -264,7 +276,16 @@ class TranslatePhraseUseCase:
             target_lang=target_lang,
         )
         if existing_card is not None:
+            history_item = self._store_history_item(
+                command=command,
+                translated_text=translated.translated_text,
+                source_lang=source_lang,
+                target_lang=target_lang,
+                now=now,
+                card=existing_card,
+            )
             return self._build_saved_result(
+                history_entry_id=history_item.id,
                 card=existing_card,
                 direction=direction,
                 provider_name=translated.provider_name,
@@ -279,9 +300,19 @@ class TranslatePhraseUseCase:
                 translated_text=translated.translated_text,
                 source_lang=source_lang,
                 target_lang=target_lang,
+                now=now,
             )
         )
+        history_item = self._store_history_item(
+            command=command,
+            translated_text=translated.translated_text,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            now=now,
+            card=stored_card,
+        )
         return self._build_saved_result(
+            history_entry_id=history_item.id,
             card=stored_card,
             direction=direction,
             provider_name=translated.provider_name,
@@ -340,8 +371,8 @@ class TranslatePhraseUseCase:
         translated_text: str,
         source_lang: str,
         target_lang: str,
+        now,
     ) -> PhraseCard:
-        now = self.clock.now()
         learning_status, archived_reason = self._resolve_learning_state(
             command.learn
         )
@@ -366,9 +397,38 @@ class TranslatePhraseUseCase:
             return LearningStatus.ACTIVE, None
         return LearningStatus.NOT_LEARNING, "created_without_learning"
 
+    def _store_history_item(
+        self,
+        *,
+        command: TranslatePhraseCommand,
+        translated_text: str,
+        source_lang: str,
+        target_lang: str,
+        now,
+        card: PhraseCard | None = None,
+    ) -> HistoryItem:
+        history_item = HistoryItem(
+            id=command.history_entry_id or uuid4(),
+            user_id=command.user_id,
+            card_id=card.id if card is not None else None,
+            source_text=command.text,
+            translated_text=translated_text,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            created_at=now,
+            learning_status=(
+                None if card is None else card.learning_status
+            ),
+            saved=card is not None,
+        )
+        if command.history_entry_id is None:
+            return self.history_repository.add(history_item)
+        return self.history_repository.save(history_item)
+
     def _build_preview_result(
         self,
         *,
+        history_entry_id,
         command: TranslatePhraseCommand,
         translated_text: str,
         direction: ReviewDirection,
@@ -380,6 +440,7 @@ class TranslatePhraseUseCase:
         has_pair_warning: bool,
     ) -> TranslationResult:
         return TranslationResult(
+            history_entry_id=history_entry_id,
             card_id=None,
             source_text=command.text,
             translated_text=translated_text,
@@ -399,6 +460,7 @@ class TranslatePhraseUseCase:
     def _build_saved_result(
         self,
         *,
+        history_entry_id,
         card: PhraseCard,
         direction: ReviewDirection,
         provider_name: str,
@@ -408,6 +470,7 @@ class TranslatePhraseUseCase:
         already_saved: bool,
     ) -> TranslationResult:
         return TranslationResult(
+            history_entry_id=history_entry_id,
             card_id=card.id,
             source_text=card.source_text,
             translated_text=card.target_text,
@@ -440,10 +503,10 @@ class TranslationWarningState:
 class GetHistoryUseCase:
     """Return user translation history."""
 
-    phrase_repository: PhraseRepository
+    history_repository: HistoryRepository
 
     def execute(self, query: GetHistoryQuery) -> list[HistoryItem]:
-        return self.phrase_repository.list_history_by_user(
+        return self.history_repository.list_by_user(
             user_id=query.user_id,
             limit=query.limit,
         )
@@ -584,6 +647,7 @@ class UpdateSettingsUseCase:
             source_lang=source_lang,
             target_lang=target_lang,
             timezone=command.timezone,
+            notification_frequency_days=command.notification_frequency_days,
         )
         current = self.settings_repository.get(command.user_id) or (
             default_settings(command.user_id)
@@ -597,6 +661,7 @@ class UpdateSettingsUseCase:
             ),
             timezone=command.timezone,
             notification_time_local=command.notification_time_local,
+            notification_frequency_days=command.notification_frequency_days,
             notifications_enabled=command.notifications_enabled,
             last_notification_local_date=current.last_notification_local_date,
         )
@@ -609,6 +674,7 @@ class UpdateSettingsUseCase:
         source_lang: str,
         target_lang: str,
         timezone: str,
+        notification_frequency_days: int,
     ) -> None:
         if source_lang == target_lang:
             raise InvalidSettingsError(
@@ -624,6 +690,10 @@ class UpdateSettingsUseCase:
             raise InvalidSettingsError(
                 "Timezone must be a valid IANA timezone."
             ) from error
+        if notification_frequency_days < 1:
+            raise InvalidSettingsError(
+                "Notification frequency must be at least one day."
+            )
 
     @staticmethod
     def _normalize_language_code(language_code: str) -> str:

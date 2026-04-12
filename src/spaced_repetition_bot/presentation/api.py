@@ -136,7 +136,11 @@ class TranslationResponse(BaseModel):
 class HistoryItemResponse(BaseModel):
     """Single history row returned by the API."""
 
-    card_id: UUID = Field(
+    id: UUID = Field(
+        description="History row identifier.",
+        examples=["22222222-2222-2222-2222-222222222222"],
+    )
+    card_id: UUID | None = Field(
         description="Card identifier.",
         examples=["11111111-1111-1111-1111-111111111111"],
     )
@@ -155,8 +159,12 @@ class HistoryItemResponse(BaseModel):
     created_at: datetime = Field(
         description="Creation timestamp.", examples=["2026-03-28T12:00:00Z"]
     )
-    learning_status: LearningStatus = Field(
+    learning_status: LearningStatus | None = Field(
         description="Learning status.", examples=["active"]
+    )
+    saved: bool = Field(
+        description="Whether the translation was saved as a learning card.",
+        examples=[True],
     )
 
 
@@ -294,6 +302,10 @@ class SettingsResponse(BaseModel):
         description="Preferred local notification time.",
         examples=["09:00:00"],
     )
+    notification_frequency_days: int = Field(
+        description="Number of days between reminder attempts.",
+        examples=[1],
+    )
     notifications_enabled: bool = Field(
         description="Whether notifications are enabled.",
         examples=[True],
@@ -325,6 +337,14 @@ class UpdateSettingsRequest(BaseModel):
     notification_time_local: time = Field(
         description="Preferred local notification time.",
         examples=["09:00:00"],
+    )
+    notification_frequency_days: int | None = Field(
+        default=None,
+        description=(
+            "Reminder frequency in whole days. "
+            "When omitted, the current setting is preserved."
+        ),
+        examples=[2],
     )
     notifications_enabled: bool = Field(
         description="Whether notifications should be sent.",
@@ -457,6 +477,9 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
                     "application/json": {
                         "example": [
                             {
+                                "id": (
+                                    "22222222-2222-2222-2222-222222222222"
+                                ),
                                 "card_id": (
                                     "11111111-1111-1111-1111-111111111111"
                                 ),
@@ -466,6 +489,7 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
                                 "target_lang": "es",
                                 "created_at": "2026-03-28T12:00:00Z",
                                 "learning_status": "active",
+                                "saved": True,
                             }
                         ]
                     }
@@ -707,6 +731,7 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
                             "default_translation_direction": "forward",
                             "timezone": "Europe/Moscow",
                             "notification_time_local": "09:00:00",
+                            "notification_frequency_days": 1,
                             "notifications_enabled": True,
                         }
                     }
@@ -747,6 +772,7 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
                             "default_translation_direction": "forward",
                             "timezone": "Europe/Moscow",
                             "notification_time_local": "09:00:00",
+                            "notification_frequency_days": 1,
                             "notifications_enabled": True,
                         }
                     }
@@ -765,6 +791,7 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
                     "default_translation_direction": "forward",
                     "timezone": "Europe/Moscow",
                     "notification_time_local": "09:00:00",
+                    "notification_frequency_days": 1,
                     "notifications_enabled": True,
                 }
             ],
@@ -772,11 +799,23 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
     ) -> SettingsResponse:
         try:
             direction = payload.default_translation_direction
-            if direction is None:
+            notification_frequency_days = (
+                payload.notification_frequency_days
+            )
+            current = None
+            if (
+                direction is None
+                or notification_frequency_days is None
+            ):
                 current = container.get_settings.execute(
                     GetSettingsQuery(user_id=payload.user_id)
                 )
+            if direction is None:
                 direction = current.default_translation_direction
+            if notification_frequency_days is None:
+                notification_frequency_days = (
+                    current.notification_frequency_days
+                )
             result = container.update_settings.execute(
                 UpdateSettingsCommand(
                     user_id=payload.user_id,
@@ -785,6 +824,7 @@ def build_api_router(container: ApplicationContainer) -> APIRouter:
                     default_translation_direction=direction,
                     timezone=payload.timezone,
                     notification_time_local=payload.notification_time_local,
+                    notification_frequency_days=notification_frequency_days,
                     notifications_enabled=payload.notifications_enabled,
                 )
             )

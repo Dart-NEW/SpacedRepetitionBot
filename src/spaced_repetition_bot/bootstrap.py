@@ -56,6 +56,7 @@ from spaced_repetition_bot.infrastructure.reminders import (
     TelegramReminderService,
 )
 from spaced_repetition_bot.infrastructure.repositories import (
+    SqlAlchemyHistoryRepository,
     SqlAlchemyPhraseRepository,
     SqlAlchemyQuizSessionRepository,
     SqlAlchemySettingsRepository,
@@ -99,6 +100,9 @@ def build_container(config: AppConfig | None = None) -> ApplicationContainer:
     phrase_repository = SqlAlchemyPhraseRepository(
         session_factory=session_factory
     )
+    history_repository = SqlAlchemyHistoryRepository(
+        session_factory=session_factory
+    )
     settings_repository = SqlAlchemySettingsRepository(
         session_factory=session_factory
     )
@@ -126,13 +130,14 @@ def build_container(config: AppConfig | None = None) -> ApplicationContainer:
     return ApplicationContainer(
         config=app_config,
         translate_phrase=TranslatePhraseUseCase(
+            history_repository=history_repository,
             phrase_repository=phrase_repository,
             settings_repository=settings_repository,
             translation_provider=translator,
             spaced_repetition_policy=spaced_repetition_policy,
             clock=clock,
         ),
-        get_history=GetHistoryUseCase(phrase_repository=phrase_repository),
+        get_history=GetHistoryUseCase(history_repository=history_repository),
         toggle_learning=ToggleLearningUseCase(
             phrase_repository=phrase_repository
         ),

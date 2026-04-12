@@ -40,6 +40,7 @@ from spaced_repetition_bot.application.dtos import (
     ToggleLearningCommand,
     TranslatePhraseCommand,
     UpdateSettingsCommand,
+    UserSettingsSnapshot,
 )
 from spaced_repetition_bot.application.errors import (
     ApplicationError,
@@ -71,6 +72,7 @@ from spaced_repetition_bot.presentation._telegram_ui import (
     _format_summary,
     _format_translation_card,
     _is_valid_timezone,
+    _parse_notification_frequency_days,
     _parse_notification_time,
 )
 
@@ -270,6 +272,8 @@ async def _handle_pending_input(
         return await _handle_pair_input(container, message)
     if state.kind == "notifytime":
         return await _handle_notify_time_input(container, message)
+    if state.kind == "notifyevery":
+        return await _handle_notify_every_input(container, message)
     if state.kind == "timezone":
         return await _handle_timezone_input(container, message)
     await message.answer("This input flow is no longer active.")
@@ -334,6 +338,27 @@ async def _handle_timezone_input(
     return True
 
 
+async def _handle_notify_every_input(
+    container: ApplicationContainer,
+    message: Message,
+) -> bool:
+    notification_frequency_days = _parse_notification_frequency_days(
+        message.text
+    )
+    if notification_frequency_days is None:
+        await message.answer(
+            "Send the reminder frequency as a whole number of days.\n"
+            "Use /cancel to stop."
+        )
+        return False
+    await _update_settings(
+        container=container,
+        message=message,
+        notification_frequency_days=notification_frequency_days,
+    )
+    return True
+
+
 async def _update_settings(
     container: ApplicationContainer,
     message: Message,
@@ -343,6 +368,7 @@ async def _update_settings(
     default_translation_direction: ReviewDirection | None = None,
     timezone: str | None = None,
     notification_time_local: time | None = None,
+    notification_frequency_days: int | None = None,
     notifications_enabled: bool | None = None,
 ) -> None:
     if message.from_user is None:
@@ -352,28 +378,16 @@ async def _update_settings(
     )
     try:
         updated = container.update_settings.execute(
-            UpdateSettingsCommand(
+            _build_update_settings_command(
                 user_id=message.from_user.id,
-                default_source_lang=(
-                    default_source_lang or current.default_source_lang
-                ),
-                default_target_lang=(
-                    default_target_lang or current.default_target_lang
-                ),
-                default_translation_direction=(
-                    default_translation_direction
-                    or current.default_translation_direction
-                ),
-                timezone=timezone or current.timezone,
-                notification_time_local=(
-                    notification_time_local
-                    or current.notification_time_local
-                ),
-                notifications_enabled=(
-                    current.notifications_enabled
-                    if notifications_enabled is None
-                    else notifications_enabled
-                ),
+                current=current,
+                default_source_lang=default_source_lang,
+                default_target_lang=default_target_lang,
+                default_translation_direction=default_translation_direction,
+                timezone=timezone,
+                notification_time_local=notification_time_local,
+                notification_frequency_days=notification_frequency_days,
+                notifications_enabled=notifications_enabled,
             )
         )
     except InvalidSettingsError as error:
@@ -383,6 +397,54 @@ async def _update_settings(
         _format_settings_card(updated),
         reply_markup=_build_settings_keyboard(updated),
     )
+
+
+def _build_update_settings_command(
+    *,
+    user_id: int,
+    current: UserSettingsSnapshot,
+    default_source_lang: str | None,
+    default_target_lang: str | None,
+    default_translation_direction: ReviewDirection | None,
+    timezone: str | None,
+    notification_time_local: time | None,
+    notification_frequency_days: int | None,
+    notifications_enabled: bool | None,
+) -> UpdateSettingsCommand:
+    return UpdateSettingsCommand(
+        user_id=user_id,
+        default_source_lang=_resolve_updated_setting(
+            current.default_source_lang,
+            default_source_lang,
+        ),
+        default_target_lang=_resolve_updated_setting(
+            current.default_target_lang,
+            default_target_lang,
+        ),
+        default_translation_direction=_resolve_updated_setting(
+            current.default_translation_direction,
+            default_translation_direction,
+        ),
+        timezone=_resolve_updated_setting(current.timezone, timezone),
+        notification_time_local=_resolve_updated_setting(
+            current.notification_time_local,
+            notification_time_local,
+        ),
+        notification_frequency_days=_resolve_updated_setting(
+            current.notification_frequency_days,
+            notification_frequency_days,
+        ),
+        notifications_enabled=_resolve_updated_setting(
+            current.notifications_enabled,
+            notifications_enabled,
+        ),
+    )
+
+
+def _resolve_updated_setting(current_value, override_value):
+    if override_value is None:
+        return current_value
+    return override_value
 
 
 async def _toggle_learning_from_command(
@@ -435,14 +497,15 @@ def _resolve_card_reference(
     history = container.get_history.execute(
         GetHistoryQuery(user_id=user_id, limit=SHORT_ID_LOOKUP_LIMIT)
     )
-    matches = [
+    matches = {
         item.card_id
         for item in history
-        if _format_short_card_id(item.card_id).casefold() == short_id
-    ]
+        if item.card_id is not None
+        and _format_short_card_id(item.card_id).casefold() == short_id
+    }
     if len(matches) != 1:
         return None
-    return matches[0]
+    return next(iter(matches))
 
 
 async def _toggle_learning_from_callback(
@@ -650,6 +713,7 @@ async def _handle_translation_request(
                 direction=result.direction,
                 learn=active_command.learn,
                 save_with_warning=False,
+                history_entry_id=result.history_entry_id,
             )
         )
     due_reviews = container.get_due_reviews.execute(message.from_user.id)
