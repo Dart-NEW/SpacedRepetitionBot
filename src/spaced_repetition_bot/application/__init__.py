@@ -1,5 +1,5 @@
 """Application layer."""
-
+# smth
 from spaced_repetition_bot.application.dtos import (
     ActiveQuizAnswerResult,
     DueReviewItem,
